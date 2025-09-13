@@ -18,9 +18,13 @@ from langdag.decorator import make_node
 from rich import print
 from openai import OpenAI
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 client = OpenAI(
-        api_key=  # use_your own key ,  
+        api_key=os.getenv("OPENAI_API_KEY"),
         # base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", # Pls remove this if not using AliCloud
         )   
 model_name = "qwen-turbo"
