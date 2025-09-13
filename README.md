@@ -259,7 +259,7 @@ setting node.spec attribute or use `node.add_spec()` method after creating a nod
 node_2 = Node(
     node_id="node_2",
     prompt="The weather in #CITY is #WEATHER.",
-    spec = {dummyNestDict...}
+    spec = {"type": "function", "function": {}},
     func_transform=lambda prompt, upstream_output, dag_state: 
         prompt.replace('#CITY', upstream_output['node_1'])
               .replace('#WEATHER', get_weather(upstream_output['node_1'])),
@@ -277,7 +277,7 @@ node_2 = Node(
                       weather=get_weather(upstream_output['node_1']))
 )
 
-node.add_spec({dummyNestDict...})
+node_2.add_spec({"type": "function", "function": {}})
 ```
 
 After adding a spec to a `node`, you can acess the spec with `node.spec`, or you can alse get a list of specs of all nodes (if spec available) in a DAG (will be explained later) `dag` by `dag.get_all_specs()`.
@@ -294,10 +294,10 @@ For example, the following two methods of creating nodes are equivalent:
 ```python
 node_2 = Node(
     node_id="node_2",
-    prompt = "some_prompt",
+    prompt="The weather in {city} is {weather}.",
     func_transform=lambda prompt, upstream_output, dag_state: 
-        prompt.replace('#CITY', upstream_output['node_1'])
-              .replace('#WEATHER', get_weather(upstream_output['node_1'])),
+        prompt.format(city=upstream_output['node_1'], 
+                      weather=get_weather(upstream_output['node_1']))
 )
 ```
 
@@ -306,7 +306,7 @@ and
 ```python
 from langdag.decorator import make_node
 
-@make_node(prompt = "some_prompt")
+@make_node(prompt="The weather in {city} is {weather}.")
 def node_2(prompt, upstream_output, dag_state): 
     res = prompt.format(city=upstream_output['node_1'], weather=get_weather(upstream_output['node_1']))
     return res
@@ -397,7 +397,7 @@ Example use case:
 To execute the DAG, use the `run_dag` function:
 
 ```python
-from langdag import MultiThreadProcessor
+from langdag.processor import MultiThreadProcessor
 user_question = "Tell me more about SF."
 with LangDAG(dag_input=user_question) as dag:
     dag += node_1
@@ -428,7 +428,7 @@ You can also run the DAG concurrently using `MultiThreadProcessor`. The final ou
 For the above example, though it is recommended to use `with` context manager and simplified `+=` and `>>` syntax, you can also define the DAG without these.
 
 ```python
-from langdag import MultiThreadProcessor
+from langdag.processor import MultiThreadProcessor
 user_question = "Tell me more about SF."
 
 dag = LangDAG(dag_input=user_question)
@@ -439,7 +439,7 @@ dag.add_edge(node_2, node_4)
 dag.add_edge(node_2, node_5)
 dag.add_edge(node_3, node_6)
 dag.add_edge(node_4, node_6)
-dag.add_edge(node_4, node_6)
+dag.add_edge(node_5, node_6)
 
 run_dag(dag)
 
@@ -628,7 +628,8 @@ with LangDAG("my input") as dag:
     dag += node_1
     dag += node_2
     dag += node_3
-    dag += node_5.node.exec_if_any_upstream_acceptable()`
+    dag += node_5
+    node_5.exec_if_any_upstream_acceptable()
 
     node_1 >> 1 >> node_5
     node_2 >> True >> node_5
@@ -645,7 +646,7 @@ with LangDAG("my input") as dag:
     dag += node_2
     dag += node_3
     dag += node_5
-    node_5.node.exec_if_any_upstream_acceptable()`
+    node_5.exec_if_any_upstream_acceptable()
 
     node_1 >> 1 >> node_5
     node_2 >> True >> node_5
@@ -789,6 +790,42 @@ with LangDAG() as dag:
     )
 ```
 
+### Snapshot and Recovery
+
+To handle interruptions and make workflows more resilient, LangDAG supports snapshotting the state of a DAG during execution. If a run fails, you can recover the DAG from the snapshot and resume it from where it left off.
+
+**Automatic Snapshots on Failure (Opt-in):**
+You can configure `run_dag` and `resume_dag` to automatically save a snapshot upon failure by providing a file path to the `snapshot_on_error_path` parameter. This is an opt-in feature.
+
+```python
+run_dag(dag, snapshot_on_error_path="my_dag_snapshot.dill")
+```
+If an error occurs, the state of `dag` will be saved to `my_dag_snapshot.dill`. This is safe for concurrent runs, as you can provide a unique path for each run.
+
+**Manual Snapshot and Recovery:**
+You can also manually save and recover a DAG at any point.
+
+```python
+# Manually save a snapshot
+dag.snapshot("my_snapshot.dill")
+
+# Recover the DAG from the snapshot
+from langdag import LangDAG
+recovered_dag = LangDAG.recover("my_snapshot.dill")
+```
+
+**Resuming a Recovered DAG:**
+To resume a recovered DAG from the point of failure, use the `resume_dag` function. It intelligently calculates the correct starting nodes and continues the execution.
+
+```python
+from langdag import resume_dag
+
+# Assume recovered_dag is loaded from a snapshot
+resume_dag(recovered_dag)
+
+print(recovered_dag.dag_state["output"])
+```
+
 ### Node Reset
 
 When instantiated, a node has an internal state. To view this state, simply print the node:
@@ -862,7 +899,8 @@ with LangDAG("some input") as dag:
     dag += node_input_clean
     dag += node_1
     dag += node_2
-    dag += node_3.executeIfAnyMatch()
+    dag += node_3
+    node_3.exec_if_any_upstream_acceptable()
 
     node_input_clean >> node_1 >> node_2
     node_1 >> True >> node_3 
@@ -895,13 +933,13 @@ node_1 = Node(
     node_id="node_1", 
     prompt="...",
     node_desc="THIS IS DESC",
-    func_desc=lambda prompt, upstream_output, upstream_input: 
+    func_desc=lambda prompt, upstream_output, dag_state: 
         f"THIS IS A DYNAMIC DESC FROM {prompt}",
     func_transform=...
 )
 ```
 
-`node_desc` is a static description, while `func_desc` dynamically creates a description from `prompt`, `upstream_output`, and `upstream_input`. If both are set, `node_desc` will be overridden by the value `func_desc` return.
+`node_desc` is a static description, while `func_desc` dynamically creates a description from `prompt`, `upstream_output`, and `dag_state`. If both are set, `node_desc` will be overridden by the value `func_desc` return.
 
 Though optional, node descriptions are beneficial. For example, before executing a node, you may want to send a status message using a node hook function. This message can inform the user about the current action, such as "Getting weather..." or "Getting weather for: New York on 2024-01-01...".
 
@@ -911,8 +949,8 @@ Example:
 node_1 = Node(
     node_id="node_get_weather", 
     prompt="Weather for %s on %s is %s",
-    func_desc=lambda prompt, upstream_output, upstream_input: 
-        f"Getting weather for: {upstream_output['node_0']} on {date.today().strftime("%d/%m/%Y")}",
+    func_desc=lambda prompt, upstream_output, dag_state: 
+        f"Getting weather for: {upstream_output['node_0']} on {date.today().strftime('%d/%m/%Y')}",
     func_transform=lambda prompt, upstream_output, dag_state: 
         prompt % (
           upstream_output['node_0'], 
@@ -986,20 +1024,10 @@ from langdag import Node
   Returns a dict containing attributes of the node.
 
 - **`add_spec(spec_dict: Dict)`** -> None:
-  Save parameter tool spec `spec_dict` to node.spec
+  Save parameter `spec_dict` to node.spec
 
-- **`exec_if_any_upstream_finished()`**:  
-  Configures the node to execute when any upstream output matches the required conditions on conditional edges.
-
-- **exec_if_any_upstream_finished**:
-  NOT default behavior.
-  Configures the node to execute when 
-  **any** upstream nodes finished & **all** (by default, or **any** if use `exec_if_any_condition_met` in meantime) upstream outputs match the required conditions on conditional edges (if there are conditional edges, otherwise deemed conditions met).
-
- - **exec_if_any_upstream_acceptable**:
-  NOT default behavior.
-  Configures the node to execute when 
-  **any** upstream nodes acceptable. "acceptable" meaning see docs.
+- **`exec_if_any_upstream_acceptable()`**:  
+  NOT default behavior. Configures the node to execute when **any** upstream nodes are "acceptable". See the "Execution Behavior" section for the definition of "acceptable".
    
 
 
@@ -1028,7 +1056,13 @@ from langdag import LangDAG
   Reset all nodes (node.reset) in this dag to its original state (when instantialized)
 
 - **`inspect_execution()`**:  
-  Print to console a rich.tree to show DAG execution (dag.inspect_execution)
+  Print to console a rich.tree to show DAG execution (dag.inspect_execution())
+
+- **`snapshot(path: str)`**:
+  Saves the current state of the DAG to a file at the given `path`.
+
+- **`recover(path: str)`** -> `LangDAG`:
+  A static method that loads and returns a `LangDAG` instance from a snapshot file.
   
 
 
@@ -1056,7 +1090,7 @@ from langdag.executor import LangExecutor
 
 ## Functions
 
-### `run_dag(dag, processor, selector, executor, verbose, slower, progressbar)` *(function)*
+### `run_dag(dag, processor, selector, executor, verbose, delay, progressbar, snapshot_on_error_path)` *(function)*
 
 Executes the DAG with various configurations for processing and execution.
 
@@ -1085,12 +1119,23 @@ from langdag.selector import FullSelector, MaxSelector
 - **`verbose`** (`Boolean`, `optional`, defaults to `True`):  
   When set to False, it disable verbose logging.
 
-- **`slower`** (`Boolean`, `optional`, defaults to `False`):  
-  When set to True, it slow down every node execution by 1 sec; When set to a number N, it slow down every node execution by N sec.
+- **`delay`** (`Boolean|int|float`, `optional`, defaults to `False`):  
+  When set to True, it slows down every node execution by 1 sec; When set to a number N, it slows down every node execution by N sec. The `slower` parameter is also available for backward compatibility but is deprecated.
 
 - **`progressbar`** (`Boolean`, `optional`, defaults to `True`):  
   By default set to `True`, a progress bar shows up when runing a dag. When set to False, it disable progressbar.
 
+- **`snapshot_on_error_path`** (`str`, `optional`, defaults to `None`):
+  If provided, the DAG state will be saved to this path upon any execution error.
+
+
+### `resume_dag(...)` *(function)*
+
+Precisely resumes a recovered DAG from the last point of failure. It accepts the same parameters as `run_dag`.
+
+```python
+from langdag import resume_dag
+```
 
 ### `default(dict)` *(function)*
 
