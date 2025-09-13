@@ -19,8 +19,8 @@ DAGs, widely used in data orchestration tools like Airflow, can be effectively a
 - **Conditional Routing:** Allows using conditional edges to route queries or outputs to subsequent steps.
 - **Hooks:** Provides customizable hook functions for executing additional tasks (ie., logging, state reporting) before and after node execution.
 - **Observability:** Offers a tree-structure diagram (Execution Visualization) for inspecting the DAG execution process directly in your console, making state, output, condition tracking easier.
-- **Uniform Achitechture:** Ensures a consistent unit structure for all steps (nodes).
-- **Reusabe Unit:** Enables nodes to be reused across different workflows.
+- **Uniform Architecture:** Ensures a consistent unit structure for all steps (nodes).
+- **Reusable Unit:** Enables nodes to be reused across different workflows.
 
 ## Motivation
 
@@ -56,14 +56,14 @@ A node, also referred to as a *vertex*, is a fundamental unit in a DAG. In **Lan
 
 The `prompt` serves as a fixed input in the context of LLMs, acting as predefined input for the node.
 
-A node can have a predefined `prompt` and also receive outputs from upstream nodes (a dict with upstream `node_id`s as keys and respetive output as outputs, can be a empty dict `{}` if unavailable). It treats both the prompt and the upstream outputs as inputs, processes them, and produces an output that is passed to downstream nodes.
+A node can have a predefined `prompt` and also receive outputs from upstream nodes (a dict with upstream `node_id`s as keys and respective output as outputs, can be a empty dict `{}` if unavailable). It treats both the prompt and the upstream outputs as inputs, processes them, and produces an output that is passed to downstream nodes.
 
 An LLM node treats the upstream output as external input and its own prompt as an internal predefined input. It uses a `transforming function` (the `func_transform` parameter of the `Node` class) to convert these inputs and generate the output.
 
 
 ### Edge
 
-An edge represents a connection between nodes, directed from an upstream node to a downstream node. A node can have multiple upstream and downstream nodes. It’s crucial to avoid creating cycles, as they can lead to infinite loops, which are generally undesirable and forbbiden in a DAG. As a side note, you can still (and it is common) to use loops outside a DAG.
+An edge represents a connection between nodes, directed from an upstream node to a downstream node. A node can have multiple upstream and downstream nodes. It’s crucial to avoid creating cycles, as they can lead to infinite loops, which are generally undesirable and forbidden in a DAG. As a side note, you can still (and it is common) to use loops outside a DAG.
 
 In the context of LLM agents, specific tasks often require multiple steps execute sequentially.
 
@@ -79,7 +79,7 @@ Conversely, `Node_B` can also have multiple downstream nodes.
 
 ### Conditional Edge
 
-We just talked about simple edges, but LangDAG allows you to use *conditional edges*, which means you can decide whether or not to execute a downstream node based on if the outputs form upstream nodes met certent condition. 
+We just talked about simple edges, but LangDAG allows you to use *conditional edges*, which means you can decide whether or not to execute a downstream node based on if the outputs form upstream nodes met certain condition. 
 
 As a pseudo example, 
 
@@ -161,10 +161,10 @@ A node can have 3 state: initialized, finished, aborted.
 - Starting nodes in a DAG is always allowed to run.
 - For a node, an upstream node is *"acceptable"* if it is *finished* and condition met(if condition edge exist).
 - For a node, an upstream node is not *"acceptable"* if it is *not finished* or it is *finished* but condition not met.
-- By default behavoir, a node will execute and finished if all upstream nodes are *"acceptable"*, otherwise it will not be finished.
-- Default behavoir can be changed to: a node will execute and finished if **any** upstream nodes are *"acceptable"*, otherwise it will not be finished.
+- By default behavior, a node will execute and finished if all upstream nodes are *"acceptable"*, otherwise it will not be finished.
+- Default behavior can be changed to: a node will execute and finished if **any** upstream nodes are *"acceptable"*, otherwise it will not be finished.
 
-3. If no exceptions occured, A node is either *finished* or *aborted*. (You will need to handle exceptions yourself.)
+3. If no exceptions occurred, A node is either *finished* or *aborted*. (You will need to handle exceptions yourself.)
 
 
 ### Putting It All Together
@@ -238,10 +238,10 @@ Here’s an example node_2 is generating an answer based on city name extracted 
 ```python
 node_2 = Node(
     node_id="node_2",
-    prompt="The weather in #CITY is #WEATHER.",
+    prompt="The weather in {city} is {weather}.",
     func_transform=lambda prompt, upstream_output, dag_state: 
-        prompt.replace('#CITY', upstream_output['node_1'])
-              .replace('#WEATHER', get_weather(upstream_output['node_1'])),
+        prompt.format(city=upstream_output['node_1'], 
+                      weather=get_weather(upstream_output['node_1']))
 )
 ```
 
@@ -271,10 +271,10 @@ or
 ```python
 node_2 = Node(
     node_id="node_2",
-    prompt="The weather in #CITY is #WEATHER.",
+    prompt="The weather in {city} is {weather}.",
     func_transform=lambda prompt, upstream_output, dag_state: 
-        prompt.replace('#CITY', upstream_output['node_1'])
-              .replace('#WEATHER', get_weather(upstream_output['node_1'])),
+        prompt.format(city=upstream_output['node_1'], 
+                      weather=get_weather(upstream_output['node_1']))
 )
 
 node.add_spec({dummyNestDict...})
@@ -308,13 +308,13 @@ from langdag.decorator import make_node
 
 @make_node(prompt = "some_prompt")
 def node_2(prompt, upstream_output, dag_state): 
-    res = prompt.replace('#CITY', upstream_output['node_1']).replace('#WEATHER', get_weather(upstream_output['node_1']))
+    res = prompt.format(city=upstream_output['node_1'], weather=get_weather(upstream_output['node_1']))
     return res
 ```
 
 Though the `@make_node()` decorator provide a different way to create a node by directly associating the function with the node's transformation logic, the `@make_node()` decorator has the same functionality as the `Node()` class. It accepts the same parameters as `Node()`, except it uses the decorated function as `func_transform`, and the `node_id` defaults to the name of the decorated function if not explicitly set (the `node_id` parameter can also be manually set to an id that is different from the function name).
 
-> `@@make_node(spec = {...})`
+> `@make_node(spec = {...})`
 
 Use spec parameter in `@make_node()` decorator to add function / tool spec to this node.
 This is optional, but will be helpful if you are working on function calling or tool calling, and 
@@ -329,10 +329,10 @@ from langdag.utils import default
 
 node_2 = Node(
     node_id="node_2",
-    prompt="The weather in #CITY is #WEATHER.",
+    prompt="The weather in {city} is {weather}.",
     func_transform=lambda prompt, upstream_output, dag_state: 
-        prompt.replace('#CITY', default(upstream_output))
-              .replace('#WEATHER', get_weather(default(upstream_output))),
+        prompt.format(city=default(upstream_output), 
+                      weather=get_weather(default(upstream_output)))
 )
 ```
 
@@ -415,7 +415,7 @@ with LangDAG(dag_input=user_question) as dag:
     run_dag(dag)  # <--- THIS LINE
     # run_dag(dag, processor=MultiThreadProcessor())  # Or run concurrently
 
-    print(dag.dag_stae["output"])
+    print(dag.dag_state["output"])
 ```
 
 **Note**: The `run_dag` function can be used either within or not within the `with LangDAG()` context.
@@ -443,7 +443,7 @@ dag.add_edge(node_4, node_6)
 
 run_dag(dag)
 
-print(dag.dag_stae["output"])
+print(dag.dag_state["output"])
 
 ```
 
@@ -850,7 +850,7 @@ with LangDAG() as dag:
 
 ### Node Hooks
 
-You can set the parameters `func_start_hook` and `func_finish_hook` when instantializing a `LangExecutor`.
+You can set the parameters `func_start_hook` and `func_finish_hook` when instantiating a `LangExecutor`.
 
 - `func_start_hook` runs before node execution. It takes a function with two required positional parameters: `node_id` and `node_desc`.
 - `func_finish_hook` runs after node execution finishes. It takes a function with four required positional parameters: `node_id`, `node_desc`, `execution_state`, and `node_output`.
@@ -1112,7 +1112,7 @@ upstream_output = {'key_1': 'value_1'}
 default(upstream_output)  # returns 'value_1'
 ```
 
-## Cutomization with `paradag`
+## Customization with `paradag`
 
 `langdag` uses `paradag` as the DAG engine. This means you can  customize processors, selectors, and executors according to your specific needs with `paradag`.
 
