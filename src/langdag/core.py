@@ -7,6 +7,19 @@ from paradag import DAG
 from langdag.utils import merge_dicts, show_tree
 from langdag.error import LangdagSyntaxError
 
+import logging
+from rich.logging import RichHandler
+
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="INFO", 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
+)
+
+log = logging.getLogger("rich")
+
 # This is a forward declaration for type hinting
 class Node:
     pass
@@ -162,6 +175,18 @@ class LangDAG(DAG):
         """
         with open(path, "rb") as f:
             return dill.load(f)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        # Don't pickle the context token
+        if '_token' in state:
+            del state['_token']
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Restore token to a default state
+        self._token = None
 
 class Node():
     """
@@ -339,8 +364,7 @@ class Node():
             self.set_desc()
             
             if func_start_hook:
-                    func_start_hook(self.node_id, 
-                                    self.node_desc)
+                    func_start_hook(self)
             # move end
 
             self.transform()

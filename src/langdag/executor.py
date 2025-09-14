@@ -3,6 +3,7 @@ import copy
 from langdag.utils import merge_dicts
 from langdag.error import ConflictConditionsError
 from rich import print
+from langdag.core import Node
 
 import logging
 from rich.logging import RichHandler
@@ -26,16 +27,16 @@ class LangExecutor:
         verbose  (`boolean`, *optional*, defaults to `True`):
             when verbose==True, info will be printed to console
         func_start_hook (`Callable`, *optional*, defaults to `None`):
-            A function accepts node_id, node_desc and do something customizable before a node execute.
+            A function accepts a node instance and do something customizable before a node execute.
         func_finish_hook (`Callable`, *optional*, defaults to `None`):
-            A function accepts node_id, node_desc, execution_state, node_output and do something 
+            A function accepts a node instance and do something 
             customizable before a node execute.
  """
     def __init__(
             self,
             verbose: bool = True,
-            func_start_hook: Optional[Callable[[str, str], Any]] = None,
-            func_finish_hook: Optional[Callable[[str, str, Dict, Any], Any]] = None,
+            func_start_hook: Optional[Callable[[Node], Any]] = None,
+            func_finish_hook: Optional[Callable[[Node], Any]] = None,
         ) -> None:
         self.__upstream_output: Dict = {}
         self.verbose = verbose
@@ -89,7 +90,7 @@ class LangExecutor:
                              extra={"markup": True})
 
             if self.func_finish_hook:
-                self.func_finish_hook(vertex.node_id, vertex.node_desc, vertex.execution_state, node_output)
+                self.func_finish_hook(vertex)
 
     def deliver(self, vertex, v_to, result: Dict):
         if v_to.node_id in vertex.downstream_execution_condition.keys():

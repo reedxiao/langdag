@@ -11,6 +11,17 @@ from langdag.core import LangDAG, Node
 
 from rich.progress import Progress, TimeElapsedColumn
 
+import logging
+from rich.logging import RichHandler
+
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="INFO", 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
+)
+
 log = logging.getLogger("rich")
 
 def _raw_run(dag: LangDAG, 

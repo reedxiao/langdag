@@ -1,6 +1,19 @@
 from typing import Optional, Dict, Any, Callable
 from langdag import Node
 
+import logging
+from rich.logging import RichHandler
+
+FORMAT = "%(message)s"
+logging.basicConfig(
+    level="INFO", 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
+)
+
+log = logging.getLogger("rich")
+
 def make_node(  node_id: Optional[str] = None, 
                 node_desc: Optional[str | Dict | Any] = None,
                 prompt: Optional[str | Dict | Any] = None,

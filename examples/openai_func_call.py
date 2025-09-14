@@ -189,12 +189,12 @@ def single_round_ans_with_tool(messages):
         end_conv.exec_if_any_upstream_acceptable()
         llm_resp_given_tool.exec_if_any_upstream_acceptable()
 
-        def func_start_hook(node_id, node_desc):
-            if node_desc:
-                print(f"----FAKE---- UI showing: starting `{node_desc}`")
-        def func_finish_hook(node_id, node_desc, execution_state, node_output):
-            if node_desc:
-                print(f"----FAKE---- UI showing: finished `{node_desc}`")
+        def func_start_hook(node):
+            if node.node_desc:
+                print(f"----FAKE---- UI showing: starting `{node.node_desc}`")
+        def func_finish_hook(node):
+            if node.node_desc:
+                print(f"----FAKE---- UI showing: finished `{node.node_desc}`")
 
         myCustomExecutor = LangExecutor(
                                         # verbose=False,

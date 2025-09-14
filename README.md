@@ -889,8 +889,8 @@ with LangDAG() as dag:
 
 You can set the parameters `func_start_hook` and `func_finish_hook` when instantiating a `LangExecutor`.
 
-- `func_start_hook` runs before node execution. It takes a function with two required positional parameters: `node_id` and `node_desc`.
-- `func_finish_hook` runs after node execution finishes. It takes a function with four required positional parameters: `node_id`, `node_desc`, `execution_state`, and `node_output`.
+- `func_start_hook` runs before node execution. It takes a function with one required positional parameter: `node`.
+- `func_finish_hook` runs after node execution finishes. It takes a function with one required positional parameter: `node`.
 
 Example:
 
@@ -908,10 +908,10 @@ with LangDAG("some input") as dag:
 
     myCustomExecutor = LangExecutor(
         verbose=False,
-        func_start_hook=lambda node_id, node_desc: 
-            print(f"----FAKE---- UI showing: starting `{node_id}` with desc `{node_desc}`"),
-        func_finish_hook=lambda node_id, node_desc, execution_state, node_output: 
-            print(f"----FAKE---- UI showing: finished `{node_desc}` with state `{execution_state}`")
+        func_start_hook=lambda node: 
+            print(f"----FAKE---- UI showing: starting `{node.node_id}` with desc `{node.node_desc}`"),
+        func_finish_hook=lambda node: 
+            print(f"----FAKE---- UI showing: finished `{node.node_desc}` with state `{node.execution_state}`")
     )
 
     run_dag(
@@ -1080,10 +1080,10 @@ from langdag.executor import LangExecutor
   When `verbose=True`, execution information is printed to the console.
   
 - **`func_start_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node_id` and `node_desc`, executing custom actions before the node executes.
+  A function that takes `node`, executing custom actions before the node executes.
   
 - **`func_finish_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node_id`, `node_desc`, `execution_state`, and `node_output`, executing custom actions after the node finishes executing.
+  A function that takes `node`, executing custom actions after the node finishes executing.
 
 
 
