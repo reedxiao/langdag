@@ -156,7 +156,6 @@ def run_dag(dag: LangDAG,
         )
         actual_delay = slower
 
-    token = LangDAG.set_current(dag)
     try:
         for vtx in dag.all_terminals():
             vtx.func_set_dag_output_when = lambda p, up, out, state: state != "aborted"
@@ -164,14 +163,13 @@ def run_dag(dag: LangDAG,
             selector = MaxSelector(1)
         if verbose == False:
             executor.verbose = False
+        executor.dag = dag
         res = _raw_run(dag, selector, processor, executor, actual_delay, progressbar)
     except Exception as e:
         if snapshot_on_error_path:
             log.error(f"Error occurred during DAG execution, snapshotting to {snapshot_on_error_path}...")
             dag.snapshot(snapshot_on_error_path)
         raise e
-    finally:
-        LangDAG.reset_current(token)
 
     return res
 
@@ -218,12 +216,12 @@ def resume_dag(dag: LangDAG,
             vertices_zero_indegree.add(vtx)
 
     # 5. Run the dag with the reconstructed state
-    token = LangDAG.set_current(dag)
     try:
         if isinstance(processor, SequentialProcessor):
             selector = MaxSelector(1)
         if verbose == False:
             executor.verbose = False
+        executor.dag = dag
         res = _raw_run(
             dag, selector, processor, executor, actual_delay, progressbar,
             indegree_dict=indegree_dict,
@@ -235,7 +233,5 @@ def resume_dag(dag: LangDAG,
             log.error(f"Error occurred during DAG execution, snapshotting to {snapshot_on_error_path}...")
             dag.snapshot(snapshot_on_error_path)
         raise e
-    finally:
-        LangDAG.reset_current(token)
 
     return res

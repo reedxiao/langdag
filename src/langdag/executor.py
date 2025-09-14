@@ -3,7 +3,7 @@ import copy
 from langdag.utils import merge_dicts
 from langdag.error import ConflictConditionsError
 from rich import print
-from langdag.core import Node
+from langdag.core import Node, LangDAG
 
 import logging
 from rich.logging import RichHandler
@@ -42,6 +42,7 @@ class LangExecutor:
         self.verbose = verbose
         self.func_start_hook = func_start_hook
         self.func_finish_hook= func_finish_hook
+        self.dag: Optional["LangDAG"] = None
 
     def param(self, vertex):
         node_itself = vertex
@@ -49,6 +50,10 @@ class LangExecutor:
         return (node_itself, node_upstream_output)
 
     def execute(self, param):
+        token = None
+        if self.dag:
+            token = LangDAG.set_current(self.dag)
+        
         node_itself, node_upstream_output = param
         node_itself.upstream_output = node_upstream_output
 
@@ -67,6 +72,8 @@ class LangExecutor:
                      node_itself.node_output, 
                      extra={"markup": True})
 
+        if token:
+            LangDAG.reset_current(token)
         return {node_itself.node_id : node_itself.node_output}
     
     def report_start(self, vertices):
