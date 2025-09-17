@@ -2,6 +2,7 @@ from typing import List, Set, Dict, Tuple, Optional, Any, Callable
 from rich.tree import Tree
 from contextvars import ContextVar
 import dill
+import inspect
 
 from paradag import DAG
 from langdag.utils import merge_dicts, show_tree
@@ -113,8 +114,10 @@ class LangDAG(DAG):
                                                                    )
             self.add_edge(left_node, right_node)
         else:
-            er='When use `add_conditional_edge(self, left_node, condition, right_node)`, \
-                ensure left_node and right_node are both instances of Node.'
+            er = (
+                "When using `add_conditional_edge(self, left_node, condition, right_node)`, "
+                "ensure left_node and right_node are both instances of Node."
+            )
             raise LangdagSyntaxError(er)
 
 
@@ -395,3 +398,98 @@ class Node():
         else:
             self.downstream_execution_condition_temp = other
             return self
+
+    async def arun_node(self, verbose=True, func_start_hook=None) -> None:
+        """
+        Asynchronously decides how a node executes.
+        This is the async counterpart to run_node.
+        """
+        nodes_finished = [x[0] for x in self.upstream_execution_state.items() if x[1]=="finished"]   
+
+        if self.allow_execution_only_when_all_upstream_nodes_acceptable:
+            allow_execution_1 = all([x[1]=="finished" for x in self.upstream_execution_state.items()])
+            if allow_execution_1 == False:
+                allow_execution = False
+            else:
+                if self.conditional_excecution:
+                    allow_execution_2 =  all( x in self.upstream_output.items() for x in self.execution_condition.items())
+                else:
+                    allow_execution_2 = True
+                allow_execution = allow_execution_1 and allow_execution_2
+            
+        else:
+            allow_execution_1 = any([x[1]=="finished" for x in self.upstream_execution_state.items()])
+            if allow_execution_1 == False:
+                allow_execution = False
+            else:
+                if self.conditional_excecution:
+                    conditional_nodes_acceptable = [x[0] for x in self.execution_condition.items() if x in self.upstream_output.items()]
+                    unconditional_nodes_finished = [x for x in nodes_finished if x not in self.execution_condition.keys()]
+                    nodes_acceptable = conditional_nodes_acceptable + unconditional_nodes_finished
+                    allow_execution_2 = True if len(nodes_acceptable)>0 else False
+                else:
+                    allow_execution_2 = True
+                allow_execution = allow_execution_1 and allow_execution_2
+
+        if not allow_execution:
+            self.execution_state = "aborted"
+
+        if self.conditional_excecution:
+          
+            conditional_nodes_acceptable = [x[0] for x in self.execution_condition.items() if x in self.upstream_output.items()]
+            unconditional_nodes_finished = [x for x in nodes_finished if x not in self.execution_condition.keys()]
+            nodes_acceptable = conditional_nodes_acceptable + unconditional_nodes_finished
+            
+            self.upstream_output = { k:self.upstream_output[k] for k in self.upstream_output.keys() if  k in  nodes_acceptable}
+
+        if verbose : 
+            log.info("   (2) [bold yellow]->o[/] [bold yellow]%s[/] received upstream (filter acceptable): %s", 
+                     self.node_id, 
+                     self.upstream_output, 
+                     extra={"markup": True})
+       
+      
+        # If aborted, will not do transform, etc.
+        if self.execution_state == "aborted":
+            pass
+        else:
+            # move from report_start to here
+            # because we need FILTERED upstream output to set node_desc
+            if inspect.iscoroutinefunction(self.func_desc):
+                await self.aset_desc()
+            else:
+                self.set_desc()
+            
+            if func_start_hook:
+                if inspect.iscoroutinefunction(func_start_hook):
+                    await func_start_hook(self)
+                else:
+                    func_start_hook(self)
+
+            # Await the async transform
+            if inspect.iscoroutinefunction(self.func_transform):
+                await self.atransform()
+            else:
+                self.transform()
+
+            self.__set_dag_output() # This remains sync for now
+            self.execution_state = "finished"
+
+    async def atransform(self) -> None:
+        """
+        Asynchronously runs the node's transform function.
+        """
+        if self.func_transform:
+            self.node_output = await self.func_transform(self.prompt,
+                                                         self.upstream_output,
+                                                         LangDAG.get_current().dag_state)
+        return self.node_output
+
+    async def aset_desc(self) -> None:
+        """
+        Asynchronously generates a dynamic description.
+        """
+        if self.func_desc:
+            self.node_desc = await self.func_desc(self.prompt,
+                                                  self.upstream_output,
+                                                  LangDAG.get_current().dag_state)

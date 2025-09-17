@@ -2,10 +2,11 @@ from typing import List, Set, Dict, Tuple, Optional, Any, Callable
 import time
 import warnings
 import logging
+import asyncio
 
 from paradag import _call_method, _process_vertices
 from langdag.processor import SequentialProcessor
-from langdag.executor import LangExecutor
+from langdag.executor import LangExecutor, AsyncLangExecutor
 from langdag.selector import FullSelector, MaxSelector
 from langdag.core import LangDAG, Node
 
@@ -234,4 +235,104 @@ def resume_dag(dag: LangDAG,
             dag.snapshot(snapshot_on_error_path)
         raise e
 
+    return res
+
+
+async def _araw_run(dag: LangDAG,
+                    selector=FullSelector(),
+                    processor=SequentialProcessor(), # Note: Processor is less relevant here
+                    executor=AsyncLangExecutor(),
+                    delay: bool | int | float = False,
+                    progressbar: bool = True,
+                    indegree_dict: Optional[Dict[Node, int]] = None,
+                    vertices_zero_indegree: Optional[Set[Node]] = None,
+                    vertices_final: Optional[List[Node]] = None):
+    """
+    Asynchronous core DAG execution logic.
+    """
+    if indegree_dict is None:
+        indegree_dict = {vtx: dag.indegree(vtx) for vtx in dag.vertices()}
+    if vertices_final is None:
+        vertices_final = []
+    vertices_running = set()
+    if vertices_zero_indegree is None:
+        vertices_zero_indegree = dag.all_starts()
+
+    pb_columns = [*Progress.get_default_columns()[:-1], TimeElapsedColumn()]
+
+    with Progress(*pb_columns) as progress:
+        task_num = len(dag.vertices())
+        if progressbar:
+            task = progress.add_task("[green]Processing (async)...", total=100)
+
+        while vertices_zero_indegree or vertices_running:
+            if delay:
+                await asyncio.sleep(delay if isinstance(delay, (int, float)) else 1)
+
+            vertices_idle = vertices_zero_indegree - vertices_running
+            vertices_to_run = selector.select(vertices_running, vertices_idle)
+
+            if not vertices_to_run and not vertices_running:
+                break # All done
+
+            _call_method(executor, 'report_start', vertices_to_run)
+            vertices_running.update(vertices_to_run)
+            vertices_zero_indegree.difference_update(vertices_to_run)
+
+            # Execute tasks concurrently
+            tasks = [executor.execute(executor.param(vtx)) for vtx in vertices_to_run]
+            processed_results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Process results
+            processed_results = []
+            for i, vtx in enumerate(vertices_to_run):
+                result = processed_results_list[i]
+                if isinstance(result, Exception):
+                    raise result # Propagate exceptions
+                processed_results.append((vtx, result))
+
+
+            _call_method(executor, 'report_finish', processed_results)
+
+            vertices_processed = [result[0] for result in processed_results]
+            vertices_running.difference_update(vertices_processed)
+            vertices_final.extend(vertices_processed)
+
+            for vtx, result in processed_results:
+                for v_to in dag.successors(vtx):
+                    _call_method(executor, 'deliver', vtx, v_to, result)
+                    indegree_dict[v_to] -= 1
+                    if indegree_dict[v_to] == 0:
+                        vertices_zero_indegree.add(v_to)
+            if progressbar:
+                progress.update(task, advance=100 * len(vertices_processed) / task_num)
+        if progressbar:
+            progress.update(task, description="[green]Finished (async)", completed=100)
+
+    return vertices_final
+
+
+async def arun_dag(dag: LangDAG,
+                   selector=FullSelector(),
+                   executor=AsyncLangExecutor(),
+                   verbose: bool = True,
+                   delay: bool | int | float = False,
+                   progressbar: bool = True,
+                   snapshot_on_error_path: Optional[str] = None):
+    """
+    Asynchronously runs a DAG, supporting both async and sync nodes.
+    If you have any `async def` nodes, you must use this runner.
+    """
+    try:
+        for vtx in dag.all_terminals():
+            vtx.func_set_dag_output_when = lambda p, up, out, state: state != "aborted"
+        if not verbose:
+            executor.verbose = False
+        executor.dag = dag
+        res = await _araw_run(dag, selector, None, executor, delay, progressbar)
+    except Exception as e:
+        if snapshot_on_error_path:
+            log.error(f"Error during async DAG execution, snapshotting to {snapshot_on_error_path}...")
+            dag.snapshot(snapshot_on_error_path)
+        raise e
     return res

@@ -4,11 +4,13 @@ from langdag.utils import merge_dicts
 from langdag.error import ConflictConditionsError
 from rich import print
 from langdag.core import Node, LangDAG
+import asyncio
+import inspect
 
 import logging
 from rich.logging import RichHandler
 
-FORMAT = "%(message)s"
+FORMAT = "% (message)s"
 logging.basicConfig(
     level="INFO", 
     format=FORMAT, 
@@ -115,3 +117,45 @@ class LangExecutor:
                 self.__upstream_output[v_to].update(result)
             else:
                 self.__upstream_output[v_to] = result
+
+
+class AsyncLangExecutor(LangExecutor):
+    """
+    An executor that handles both synchronous and asynchronous node execution
+    for use with `arun_dag`.
+    """
+    async def execute(self, param):
+        """
+        Asynchronously executes a node's transform function.
+
+        If the function is a coroutine, it is awaited directly.
+        If it is a regular function, it is run in a separate thread
+        to avoid blocking the asyncio event loop.
+        """
+        token = None
+        if self.dag:
+            token = LangDAG.set_current(self.dag)
+
+        node_itself, node_upstream_output = param
+        node_itself.upstream_output = node_upstream_output
+
+        if self.verbose:
+            log.info("   (2) [bold yellow]->o[/] [bold yellow]%s[/] received upstream: %s",
+                     node_itself.node_id, node_upstream_output,
+                     extra={"markup": True})
+
+        # This is the core async logic
+        if inspect.iscoroutinefunction(node_itself.func_transform):
+            await node_itself.arun_node(verbose=self.verbose, func_start_hook=self.func_start_hook)
+        else:
+            await asyncio.to_thread(node_itself.run_node, verbose=self.verbose, func_start_hook=self.func_start_hook)
+
+        if self.verbose:
+            log.info("     (3) [bold yellow]o->[/] [bold yellow]%s[/] output: %s",
+                     node_itself.node_id,
+                     node_itself.node_output,
+                     extra={"markup": True})
+
+        if token:
+            LangDAG.reset_current(token)
+        return {node_itself.node_id: node_itself.node_output}
