@@ -16,6 +16,7 @@ DAGs, widely used in data orchestration tools like Airflow, can be effectively a
 - **Friendly Syntax:** Features an intuitive DAG syntax that minimizes unnecessary complexity.
 - **Stateful:** Allows a shared DAG state among steps or nodes in a DAG.
 - **Concurrent Execution:** Identifies steps that can run concurrently and enables concurrent execution without requiring manual concurrent logic.
+- **Asynchronous Execution:** Supports asynchronous execution of nodes, allowing for non-blocking I/O operations.
 - **Conditional Routing:** Allows using conditional edges to route queries or outputs to subsequent steps.
 - **Hooks:** Provides customizable hook functions for executing additional tasks (ie., logging, state reporting) before and after node execution.
 - **Observability:** Offers a tree-structure diagram (Execution Visualization) for inspecting the DAG execution process directly in your console, making state, output, condition tracking easier.
@@ -790,6 +791,135 @@ with LangDAG() as dag:
     )
 ```
 
+### Asynchronous Execution
+
+LangDAG also supports asynchronous execution, which is useful for I/O-bound tasks. To use this feature, you need to define async nodes and use `arun_dag` to run the DAG.
+
+**Defining Async Nodes:**
+
+Async nodes are defined similarly to sync nodes, but they use async functions for transformation and description.
+
+```python
+import asyncio
+
+async def a_transform(prompt, upstream_output, dag_state):
+    await asyncio.sleep(1)
+    return "async result"
+
+node_async = Node(
+    node_id="node_async",
+    func_transform=a_transform
+)
+```
+
+**Running the DAG Asynchronously:**
+
+To run the DAG asynchronously, use the `arun_dag` function.
+
+```python
+import asyncio
+
+async def main():
+    with LangDAG() as dag:
+        dag += node_async
+        await arun_dag(dag)
+    print(dag.dag_state["output"])
+
+asyncio.run(main())
+```
+
+`arun_dag` uses `AsyncLangExecutor` by default to handle both sync and async nodes.
+
+
+**Example with FastAPI:**
+
+Here's how you can use an async DAG within a FastAPI application:
+
+```python
+# main.py
+import asyncio
+from fastapi import FastAPI
+from langdag import Node, LangDAG, arun_dag
+
+# 1. Define an async node
+async def a_transform(prompt, upstream_output, dag_state):
+    # Simulate an async I/O operation
+    await asyncio.sleep(1)
+    return f"Input was: {dag_state['input']}"
+
+node_async = Node(
+    node_id="node_async",
+    func_transform=a_transform
+)
+
+# 2. Create a FastAPI app
+app = FastAPI()
+
+# 3. Define an endpoint that uses the DAG
+@app.post("/process")
+async def process_data(data: dict):
+    user_input = data.get("input")
+
+    with LangDAG(dag_input=user_input) as dag:
+        dag += node_async
+        # Run the DAG asynchronously
+        await arun_dag(dag, progressbar=False, verbose=False)
+
+    # Return the result from the DAG's state
+    return {"result": dag.dag_state["output"]}
+
+# To run this example:
+# 1. Install necessary packages: pip install fastapi "uvicorn[standard]"
+# 2. Save the code as main.py
+# 3. Run the server: uvicorn main:app --reload
+# 4. Send a POST request to http://127.0.0.1:8000/process with a JSON body like: {"input": "hello world"}
+```
+
+
+**Example with FastAPI:**
+
+Here's how you can use an async DAG within a FastAPI application:
+
+```python
+# main.py
+import asyncio
+from fastapi import FastAPI
+from langdag import Node, LangDAG, arun_dag
+
+# 1. Define an async node
+async def a_transform(prompt, upstream_output, dag_state):
+    # Simulate an async I/O operation
+    await asyncio.sleep(1)
+    return f"Input was: {dag_state['input']}"
+
+node_async = Node(
+    node_id="node_async",
+    func_transform=a_transform
+)
+
+# 2. Create a FastAPI app
+app = FastAPI()
+
+# 3. Define an endpoint that uses the DAG
+@app.post("/process")
+async def process_data(data: dict):
+    user_input = data.get("input")
+
+    with LangDAG(dag_input=user_input) as dag:
+        dag += node_async
+        # Run the DAG asynchronously
+        await arun_dag(dag, progressbar=False, verbose=False)
+
+    # Return the result from the DAG's state
+    return {"result": dag.dag_state["output"]}
+
+# To run this example:
+# 1. Install necessary packages: pip install fastapi "uvicorn[standard]"
+# 2. Save the code as main.py
+# 3. Run the server: uvicorn main:app --reload
+# 4. Send a POST request to http://127.0.0.1:8000/process with a JSON body like: {"input": "hello world"}
+```
+
 ### Snapshot and Recovery
 
 To handle interruptions and make workflows more resilient, LangDAG supports snapshotting the state of a DAG during execution. If a run fails, you can recover the DAG from the snapshot and resume it from where it left off.
@@ -1010,7 +1140,7 @@ from langdag import Node
   A function that generates a dynamic description from `prompt`, `upstream_output`, and `dag_state`.
   
 - **`func_transform`** (`Callable`, *optional*, defaults to `None`):  
-  A function that transforms `prompt`, `upstream_output`, and `dag_state` into the node's output.
+  A function that transforms `prompt`, `upstream_output`, and `dag_state` into the node's output. Can be a sync or async function.
   
 - **`func_set_dag_output_when`** (`Callable`, *optional*, defaults to `None`):  
   A function returns boolean that decides whether the `node_output` should be set as the final output of the DAG (dag.dag_state["output"]) based on `prompt`, `upstream_output`, `node_output`, and `execution_state`.
@@ -1028,6 +1158,15 @@ from langdag import Node
 
 - **`exec_if_any_upstream_acceptable()`**:  
   NOT default behavior. Configures the node to execute when **any** upstream nodes are "acceptable". See the "Execution Behavior" section for the definition of "acceptable".
+
+- **`atransform(prompt, upstream_output, dag_state)`** -> `Any`:
+    Asynchronously transforms the input to an output.
+
+- **`aset_desc(prompt, upstream_output, dag_state)`** -> `None`:
+    Asynchronously sets the node's description.
+
+- **`arun_node()`** -> `None`:
+    Asynchronously runs the node's transformation logic.
    
 
 
@@ -1068,7 +1207,7 @@ from langdag import LangDAG
 
 ### LangExecutor *(class)*
 
-The `LangExecutor` class handles the execution of nodes in the DAG, with optional hooks for custom behavior.
+The `LangExecutor` class handles the execution of nodes in the DAG, with optional hooks for custom behavior. For asynchronous execution, see `AsyncLangExecutor`.
 
 ```python
 from langdag.executor import LangExecutor
@@ -1084,6 +1223,26 @@ from langdag.executor import LangExecutor
   
 - **`func_finish_hook`** (`Callable`, *optional*, defaults to `None`):  
   A function that takes `node`, executing custom actions after the node finishes executing.
+
+
+### AsyncLangExecutor *(class)*
+
+The `AsyncLangExecutor` class handles the asynchronous execution of nodes in the DAG, supporting both sync and async nodes.
+
+```python
+from langdag.executor import AsyncLangExecutor
+```
+
+**Parameters:**
+
+- **`verbose`** (`boolean`, *optional*, defaults to `True`):  
+  When `verbose=True`, execution information is printed to the console.
+  
+- **`func_start_hook`** (`Callable`, *optional*, defaults to `None`):  
+  A function that takes `node`, executing custom actions before the node executes. Can be a sync or async function.
+  
+- **`func_finish_hook`** (`Callable`, *optional*, defaults to `None`):  
+  A function that takes `node`, executing custom actions after the node finishes executing. Can be a sync or async function.
 
 
 
@@ -1128,6 +1287,14 @@ from langdag.selector import FullSelector, MaxSelector
 - **`snapshot_on_error_path`** (`str`, `optional`, defaults to `None`):
   If provided, the DAG state will be saved to this path upon any execution error.
 
+
+### `arun_dag(...)` *(function)*
+
+Asynchronously executes the DAG. It accepts the same parameters as `run_dag`, but uses `AsyncLangExecutor` by default.
+
+```python
+from langdag import arun_dag
+```
 
 ### `resume_dag(...)` *(function)*
 
