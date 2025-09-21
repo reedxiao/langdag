@@ -118,7 +118,8 @@ def write_file(filepath, content):
     filepath = filepath[1:] if filepath.startswith('@') else filepath
 
     try:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        if '/' in filepath:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'w') as f:
             f.write(content)
         return f"Successfully wrote to {filepath}"
