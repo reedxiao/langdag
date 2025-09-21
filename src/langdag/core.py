@@ -73,17 +73,13 @@ class LangDAG(DAG):
             self._token = None
     
     def __iadd__(self, other):
-        if isinstance(other, list) or isinstance(other, tuple):
-            if any(isinstance(x, Node) for x in other):
-                er='Please do not put Nodes in a list or tuple when adding nodes. This syntax is not supported.'
-                raise LangdagSyntaxError(er)
         if isinstance(other, Node):
-            self.add_vertex(other)
-            self.dag_state["specs"].update({other.node_id: other.spec})
+            self.add_node(other)
+        elif isinstance(other, (list, tuple)):
+            self.add_node(*other)
         else:
-            raise LangdagSyntaxError('Please add only `Node` class instance to the DAG')
-
-        return self    
+            raise LangdagSyntaxError('Please add only `Node` class instance or a list/tuple of Nodes to the DAG')
+        return self
     
     def add_node(self, *nodes):
         """
@@ -155,6 +151,16 @@ class LangDAG(DAG):
             if node.spec:
                 spec_list.append(node.spec)
         return spec_list
+    
+    def get_node(self, node_id: Any) -> Optional[Node]:
+        """
+        Returns the node instance with the given node_id from the DAG.
+        Returns None if no node with the given id is found.
+        """
+        for node in self.vertices():
+            if node.node_id == node_id:
+                return node
+        return None
     
     def __str__(self) -> str:
         for x in self._DAG__data._dagData__graph:
@@ -321,7 +327,7 @@ class Node():
                 allow_execution = False
             else:
                 if self.conditional_excecution:
-                    allow_execution_2 =  all( x in self.upstream_output.items() for x in self.execution_condition.items())
+                    allow_execution_2 =  all(self.upstream_output.get(k) == v for k, v in self.execution_condition.items())
                 else:
                     allow_execution_2 = True
                 allow_execution = allow_execution_1 and allow_execution_2
@@ -412,7 +418,9 @@ class Node():
                 allow_execution = False
             else:
                 if self.conditional_excecution:
-                    allow_execution_2 =  all( x in self.upstream_output.items() for x in self.execution_condition.items())
+                    allow_execution_2 = all(
+                        self.upstream_output.get(k) == v for k, v in self.execution_condition.items()
+                    )
                 else:
                     allow_execution_2 = True
                 allow_execution = allow_execution_1 and allow_execution_2
@@ -423,7 +431,10 @@ class Node():
                 allow_execution = False
             else:
                 if self.conditional_excecution:
-                    conditional_nodes_acceptable = [x[0] for x in self.execution_condition.items() if x in self.upstream_output.items()]
+                    conditional_nodes_acceptable = [
+                        k for k, v in self.execution_condition.items() 
+                        if self.upstream_output.get(k) == v
+                    ]
                     unconditional_nodes_finished = [x for x in nodes_finished if x not in self.execution_condition.keys()]
                     nodes_acceptable = conditional_nodes_acceptable + unconditional_nodes_finished
                     allow_execution_2 = True if len(nodes_acceptable)>0 else False
@@ -436,7 +447,10 @@ class Node():
 
         if self.conditional_excecution:
           
-            conditional_nodes_acceptable = [x[0] for x in self.execution_condition.items() if x in self.upstream_output.items()]
+            conditional_nodes_acceptable = [
+                k for k, v in self.execution_condition.items() 
+                if self.upstream_output.get(k) == v
+            ]
             unconditional_nodes_finished = [x for x in nodes_finished if x not in self.execution_condition.keys()]
             nodes_acceptable = conditional_nodes_acceptable + unconditional_nodes_finished
             
