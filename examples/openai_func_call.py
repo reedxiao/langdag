@@ -12,7 +12,7 @@ from langdag import Node, LangDAG, run_dag
 from langdag.processor import MultiThreadProcessor, SequentialProcessor
 from langdag.selector import MaxSelector
 from langdag.executor import LangExecutor
-from langdag.utils import default, Emptyset, NonEmptyset, PretransformSet, Subset, Superset
+from langdag.utils import default, Empty, NotEmpty, Check, SubsetOf, ContainsAll
 from langdag.decorator import make_node
 
 from rich import print
@@ -172,14 +172,14 @@ def single_round_ans_with_tool(messages):
         dag += end_conv
         
         f1 = lambda resp: resp.get("tool_calls")
-        llm_resp >> PretransformSet(f1, Emptyset()) >> end_conv
+        llm_resp >> Check(f1, Empty()) >> end_conv
 
-        llm_resp >> PretransformSet(f1, NonEmptyset()) >> tools_to_call
+        llm_resp >> Check(f1, NotEmpty()) >> tools_to_call
         # dag.add_edge(llm_resp, tools_to_call)
         
         f2 = lambda tool_calls: [x.get("function").get("name") for x in tool_calls]
-        tools_to_call >> PretransformSet(f2, Superset(["get_current_weather"])) >> get_current_weather
-        tools_to_call >> PretransformSet(f2, Superset(["evaluate_expression"])) >> evaluate_expression
+        tools_to_call >> Check(f2, ContainsAll(["get_current_weather"])) >> get_current_weather
+        tools_to_call >> Check(f2, ContainsAll(["evaluate_expression"])) >> evaluate_expression
 
         get_current_weather >> llm_resp_given_tool
         evaluate_expression >> llm_resp_given_tool
