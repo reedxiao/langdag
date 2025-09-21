@@ -1,5 +1,6 @@
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from langdag import Node
+import inspect
 
 import logging
 from rich.logging import RichHandler
@@ -48,66 +49,115 @@ def make_node(  node_id: Optional[str] = None,
 
 class Toolbox:
     """
-    NOTE: Only use this if you do not want to create a Node for a function, and want to call 
-    different functions by their names.
-    Create an instance by `toolbox = Toolbox()` and use @toolbox.add_tool(spec="...") 
-    on any function (spec is optional) to add function and its optional spec to this toolbox.
-    You then can 
-    - call the tool by its name in this toolbox by using `toolbox.call_tool_by_name("tool_name", *args, **kargs)`
-    - and get its spec by `toolbox.get_spec_by_name("tool_name")`
-    - get all specs by `toolbox.get_all_specs()`
+    A toolbox for registering functions that can be called by an LLM.
+
+    Create an instance `toolbox = Toolbox()` and use the `@toolbox.add_tool()`
+    decorator on any function to register it.
+
+    Features:
+    - Manually provide an OpenAI-compatible `spec`.
+    - Automatically generate a `spec` from the function's signature and docstring
+      by using `@toolbox.add_tool(auto_spec=True)`.
+    - Call tools by name using `toolbox.call_tool_by_name(...)`.
+    - Retrieve all specs for use in an LLM call with `toolbox.get_all_specs()`.
     """
-    # Dictionary to store function references
     def __init__(self) -> None:
         self.toolbox_registry = {}
         self.toolbox_specs = {}
 
-    def add_tool(self, spec=None):
+    def _map_type_to_json(self, py_type: Any) -> str:
+        """Maps Python types to JSON schema types."""
+        if py_type is str: return "string"
+        if py_type in (int, float): return "number"
+        if py_type is bool: return "boolean"
+        if py_type is list: return "array"
+        if py_type is dict: return "object"
+        return "string" # Default for unknown or Any types
+
+    def _generate_spec_from_func(self, func: Callable) -> Dict:
+        """Automatically generates an OpenAI-compatible spec from a function."""
+        sig = inspect.signature(func)
+        docstring = inspect.getdoc(func) or ""
+        description = docstring.split('\n')[0]
+
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        for name, param in sig.parameters.items():
+            if name in ('self', 'cls'): continue
+
+            param_type = self._map_type_to_json(param.annotation) if param.annotation != inspect.Parameter.empty else "string"
+            
+            param_desc = f"Parameter '{name}'"
+            for line in docstring.split('\n'):
+                if line.strip().startswith(f"{name} ("):
+                    param_desc = line.split(":", 1)[1].strip()
+                    break
+
+            parameters["properties"][name] = {"type": param_type, "description": param_desc}
+
+            if param.default == inspect.Parameter.empty:
+                parameters["required"].append(name)
+
+        return {
+            "type": "function",
+            "function": {
+                "name": func.__name__ if hasattr(func, '__name__') else 'unknown',
+                "description": description,
+                "parameters": parameters
+            }
+        }
+
+    def add_tool(self, spec: Optional[Dict] = None, auto_spec: bool = False):
         """
-        Create an instance by `toolbox = Toolbox()` and use @toolbox.add_tool(spec="...") 
-        on any function (spec is optional) to add function and its optional spec to this toolbox.
+        Decorator to add a function or Node's transform to the toolbox.
+
+        Args:
+            spec (Dict, optional): An OpenAI-compatible function specification.
+                                   If provided, this spec is used directly and takes highest precedence.
+            auto_spec (bool, optional): If True and no manual `spec` is provided,
+                                        a spec is auto-generated from the
+                                        function's signature and docstring.
         """
-        def decorator(func):
-            # Register the function in the dictionary
-            print(self.toolbox_registry)
-            if isinstance(func, Callable):
-                self.toolbox_registry[func.__name__] = func
-                if spec:
-                    self.toolbox_specs[func.__name__] = spec
-            elif isinstance(func, Node):
-                self.toolbox_registry[func.node_id] = func.func_transform
-                if spec:
-                    self.toolbox_specs[func.node_id] = func.spec
-            return func
+        def decorator(func_or_node: Any):
+            final_spec = spec
+            
+            if isinstance(func_or_node, Node):
+                func_name = func_or_node.node_id
+                the_callable = func_or_node.func_transform
+                self.toolbox_registry[func_name] = the_callable
+                if func_or_node.spec and final_spec is None:
+                    final_spec = func_or_node.spec
+            elif isinstance(func_or_node, Callable):
+                func_name = func_or_node.__name__
+                the_callable = func_or_node
+                self.toolbox_registry[func_name] = the_callable
+            else:
+                return func_or_node
+
+            if final_spec is None and auto_spec and the_callable:
+                try:
+                    final_spec = self._generate_spec_from_func(the_callable)
+                except Exception as e:
+                    log.warning(f"Could not auto-generate spec for '{func_name}': {e}")
+            
+            if final_spec:
+                self.toolbox_specs[func_name] = final_spec
+            
+            return func_or_node
         return decorator
-    # Function to call the registered function by name
-    def call_tool_by_name(self, func_name, *args, **kwargs):
-        """
-        Create an instance by `toolbox = Toolbox()` and use @toolbox.add_tool(spec="...") 
-        on any function (spec is optional) to add function and its optional spec to this toolbox.
-        You then can 
-        - call the tool by its name in this toolbox by using `toolbox.call_tool_by_name("tool_name", *args, **kargs)`
-        """
+
+    def call_tool_by_name(self, func_name: str, *args, **kwargs):
+        """Calls a registered function by its name."""
         if func_name in self.toolbox_registry:
             return self.toolbox_registry[func_name](*args, **kwargs)
         else:
             raise ValueError(f"Function '{func_name}' is not registered in the toolbox.")
     
-    def get_spec_by_name(self, func_name):
-        """
-        Create an instance by `toolbox = Toolbox()` and use @toolbox.add_tool(spec="...") 
-        on any function (spec is optional) to add function and its optional spec to this toolbox.
-        You then can 
-        - call the tool by its name in this toolbox by using `toolbox.call_tool_by_name("tool_name", *args, **kargs)`
-        - and get its spec by `toolbox.get_spec_by_name("tool_name")`
-        """
+    def get_spec_by_name(self, func_name: str) -> Optional[Dict]:
+        """Retrieves the spec for a single function by its name."""
         return self.toolbox_specs.get(func_name)
 
-    def get_all_specs(self):
-        """
-        Create an instance by `toolbox = Toolbox()` and use @toolbox.add_tool(spec="...") 
-        on any function (spec is optional) to add function and its optional spec to this toolbox.
-        You then can 
-        - get all specs by `toolbox.get_all_specs()`
-        """
+    def get_all_specs(self) -> List[Dict]:
+        """Returns a list of all registered function specs."""
         return list(self.toolbox_specs.values())
+
