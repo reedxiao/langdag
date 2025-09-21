@@ -4,38 +4,37 @@
 
 ## Introduction
 
-> Work in process. LangDAG is still experimental.
+> **Note:** LangDAG is currently experimental and under active development.
 
-**LangDAG** is a specialized orchestration framework for building LLM (Large Language Model) agent workflows using DAGs([Directed Acyclic Graphs](https://en.wikipedia.org/wiki/Directed_acyclic_graph)), written in Python. 
+**LangDAG** is a Python-based orchestration framework for building complex agentic workflows for Large Language Models (LLMs) using Directed Acyclic Graphs (DAGs).
 
-DAGs, widely used in data orchestration tools like Airflow, can be effectively applied to build LLM agent workflows. Despite their simplicity, DAGs are both expressive and powerful.
+Drawing inspiration from established data orchestration tools like Airflow, LangDAG applies the power and simplicity of DAGs to the domain of LLM agents. The result is a framework that is both expressive and robust.
 
-**LangDAG** demonstrates how DAGs can be utilized to build LLM agents. It provides several advantages:
+**Key Features:**
 
-- **Package Agnostic:** Plain functions first and not tied to any other specific LLM tool framework or package.
-- **Friendly Syntax:** Features an intuitive DAG syntax that minimizes unnecessary complexity.
-- **Stateful:** Allows a shared DAG state among steps or nodes in a DAG.
-- **Concurrent Execution:** Identifies steps that can run concurrently and enables concurrent execution without requiring manual concurrent logic.
-- **Asynchronous Execution:** Supports asynchronous execution of nodes, allowing for non-blocking I/O operations.
-- **Conditional Routing:** Allows using conditional edges to route queries or outputs to subsequent steps.
-- **Hooks:** Provides customizable hook functions for executing additional tasks (ie., logging, state reporting) before and after node execution.
-- **Observability:** Offers a tree-structure diagram (Execution Visualization) for inspecting the DAG execution process directly in your console, making state, output, condition tracking easier.
-- **Uniform Architecture:** Ensures a consistent unit structure for all steps (nodes).
-- **Reusable Unit:** Enables nodes to be reused across different workflows.
+- **Framework Agnostic:** Prioritizes plain functions, avoiding dependencies on specific LLM frameworks.
+- **Intuitive Syntax:** A clean and intuitive syntax for defining complex workflows.
+- **Stateful Execution:** A shared state is accessible by all nodes within a DAG.
+- **Concurrent Execution:** Automatically identifies and executes independent tasks in parallel.
+- **Asynchronous Operations:** Native support for `async` operations, ideal for I/O-bound tasks.
+- **Conditional Routing:** Dynamically route workflows using conditional edges based on node outputs.
+- **Execution Hooks:** Customize behavior by injecting logic at critical points in the execution lifecycle.
+- **Enhanced Observability:** Visualize the execution flow with a console-based tree diagram for easier debugging.
+- **Modular Architecture:** A consistent and reusable structure for all nodes.
 
 ## Motivation
 
-Creating workflows for constructing LLM agents can be manageable when there are only a few steps. However, as the complexity of the workflow increases, several challenges arise:
+While simple LLM agent workflows are straightforward to build, their complexity grows exponentially as more steps are added. This often leads to several challenges:
 
-- **Navigation and Modification:** Finding or modifying specific elements requires navigating through numerous `if` and `for` statements.
-- **Logging:** Manually logging the intermediate states of variables and tracking which conditions are met becomes cumbersome.
-- **Execution Path:** Determining the execution path and understanding how an input query triggered the relevant processes can be difficult.
-- **Reusability:** Reusing parts of the workflow often involves copying, pasting, and modifying code snippets from old repositories.
-- **Hook Functions and Callbacks:** Adding hook functions or triggering callback functions in any step necessitates finding and modifying specific code sections.
-- **Concurrent Execution:** Implementing multithreading manually for concurrent execution of steps is time-consuming.
-- **Flexibility:** Being stuck in inflexible frameworks limits your ability to adapt and extend your workflows.
+- **Code Navigation:** Traversing nested `if/else` blocks and `for` loops to modify logic becomes cumbersome.
+- **State Tracking:** Manually logging intermediate states and tracking conditional branches is error-prone.
+- **Debugging:** Understanding the execution path and how an input triggered a specific outcome is difficult.
+- **Reusability:** Reusing workflow components often devolves into copying and pasting code.
+- **Extensibility:** Adding hooks or callbacks requires intrusive modifications to existing code.
+- **Performance:** Manually implementing concurrency to speed up execution is complex and time-consuming.
+- **Framework Lock-in:** Inflexible frameworks can limit the ability to adapt and extend workflows.
 
-LangDAG aims to addresses these challenges, providing a solution for constructing and managing complex LLM agent workflows.
+LangDAG is designed to address these challenges, offering a structured and scalable solution for building and managing sophisticated LLM agent workflows.
 
 ## 📑 Contents
 
@@ -49,134 +48,92 @@ LangDAG aims to addresses these challenges, providing a solution for constructin
 
 ## 💬 Concepts
 
-Before you start, it’s helpful to learn some concepts.
+A few core concepts are helpful to understand before getting started.
 
 ### Node
 
-A node, also referred to as a *vertex*, is a fundamental unit in a DAG. In **LangDAG**, a node is instantiated with a unique `node_id` (required) and an optional `prompt`.
+A **node** (or *vertex*) is the fundamental building block of a DAG. In LangDAG, each node is an instance of the `Node` class, defined by a unique `node_id` and an optional `prompt`.
 
-The `prompt` serves as a fixed input in the context of LLMs, acting as predefined input for the node.
+The `prompt` acts as a static, predefined input for the node, which is particularly useful in LLM applications.
 
-A node can have a predefined `prompt` and also receive outputs from upstream nodes (a dict with upstream `node_id`s as keys and respective output as outputs, can be a empty dict `{}` if unavailable). It treats both the prompt and the upstream outputs as inputs, processes them, and produces an output that is passed to downstream nodes.
-
-An LLM node treats the upstream output as external input and its own prompt as an internal predefined input. It uses a `transforming function` (the `func_transform` parameter of the `Node` class) to convert these inputs and generate the output.
-
+Each node can receive data from upstream nodes and combine it with its own `prompt`. This combined input is then processed by a `transforming function` (`func_transform`), which produces an output that is passed to downstream nodes.
 
 ### Edge
 
-An edge represents a connection between nodes, directed from an upstream node to a downstream node. A node can have multiple upstream and downstream nodes. It’s crucial to avoid creating cycles, as they can lead to infinite loops, which are generally undesirable and forbidden in a DAG. As a side note, you can still (and it is common) to use loops outside a DAG.
+An **edge** is a directional connection from an upstream node to a downstream node. To prevent infinite loops, cycles are not allowed.
 
-In the context of LLM agents, specific tasks often require multiple steps execute sequentially.
+In LLM agent workflows, complex tasks are often broken down into a sequence of steps. An edge, such as `A >> B`, defines this sequence, indicating that `Node_A` must execute before `Node_B`. The output of `Node_A` is then passed to `Node_B` as its **upstream output**.
 
-For example, in an LLM DAG, an upstream `Node_A` can point to a downstream `Node_B` with a directed edge `A >> B` (**LangDAG** uses `>>` as notation for a directed edge). This means `Node_A` executes first, and its output is passed along the edge `A >> B` to `Node_B`. The output of `Node_A` is typically referred to as the **upstream output**. `Node_B` can then use this upstream output in its execution. 
+It's important to note that a node only has access to the outputs of its immediate parents. For example, in a chain `A >> B >> C`, Node C cannot access the output of Node A unless an explicit edge `A >> C` is defined.
 
-Please note that upstream output in LangDAG refers to the outputs of the upstream nodes that have explicit connections to the node. For example, In `A >> B >> C`, the output of A will not be accessible to node C unless we explicit add another `A >> C`. 
-
-`Node_A` can also be called a *parent node* or the *dependent of B*.
-
-`Node_B` can have multiple upstream nodes, such as `Node_A1`, `Node_A2`, etc. By default, `Node_B` will execute only after all upstream nodes have finished (later we will see how to change this default behavior). 
-
-Conversely, `Node_B` can also have multiple downstream nodes.
+By default, a node will only execute after all of its upstream dependencies have successfully completed.
 
 ### Conditional Edge
 
-We just talked about simple edges, but LangDAG allows you to use *conditional edges*, which means you can decide whether or not to execute a downstream node based on if the outputs form upstream nodes met certain condition. 
+LangDAG also supports **conditional edges**, which allow you to dynamically control the execution path based on the output of a node.
 
-As a pseudo example, 
+For example, the following syntax defines a conditional edge:
 
 ```python
 A >> 1 >> B
 ```
 
-create a *conditional edge*, which means if A outputs 1, B will execute.
+This means that Node B will only execute if the output of Node A is `1`.
 
+### Node Input and Output
 
-### Input and Output of a Node
-
-As mentioned, nodes are connected by directed edges. They receive upstream outputs as external inputs and then generate outputs for downstream nodes.
-
-The format of the upstream output for `Node_B` with two upstream nodes `node_A1` and `node_A2` is:
+As mentioned, nodes receive a dictionary of outputs from their upstream parents. For a `Node_B` with two parents, `Node_A1` and `Node_A2`, the input would be:
 
 ```python
-{node_A1: Any, node_A2: Any, ...}
+{"node_A1": Any, "node_A2": Any}
 ```
 
-Here, `node_A1` and `node_A2` are the `node_id`s of upstream nodes, and `Any` represents any type of Python object.
+The keys of this dictionary are the `node_id`s of the parent nodes.
 
-These keys identify the source of the output from different upstream nodes.
-
-For a node with a single upstream node, the upstream output format is:
+The output of `Node_B` is also a dictionary, with its own `node_id` as the key:
 
 ```python
-{node_A1: Any}
+{"node_B": Any}
 ```
 
-The output format of a node, say `Node_B`, is:
+### DAG (Directed Acyclic Graph)
 
-```python
-{node_B: Any}
-```
+In LangDAG, a **DAG** is a collection of nodes and edges that define a complete workflow. The `LangDAG` class orchestrates the execution of these nodes according to the defined dependencies.
 
-where `node_B` is the `node_id` of the current node.
+### DAG State (`dag_state`)
 
+While nodes can pass data to their immediate children, they cannot access the state of nodes that are not directly connected to them. To solve this, LangDAG provides a shared **DAG State** (`dag_state`), which is a dictionary accessible to all nodes in the DAG.
 
-### DAG (Directed Acyclic Graphs)
-
-In **LangDAG**, a DAG is simply a huge or small workflow graph with nodes, connected with edges.
-
-**LangDAG** orchestrates all nodes (steps in a workflow) in such graph structure.
-
-
-### DAG State (or `dag_state`)
-
-As mentions, nodes process information from upstream and pass their current output to downstream nodes. Unless we explicitly set upstream or further upstream information in the current node’s output (which can be verbose and unnecessary), a node cannot access information created by nodes not directly connected to it.
-
-In **LangDAG** , we use a **DAG State** (`dag_state`), which is a info dict shared by all nodes in a DAG. 
-
-`dag_state` is initialized as 
+The `dag_state` is initialized with the following reserved keys:
 
 ```python
 {
-    "input": dag_input,
-    "specs": {},
-    "output": None
+    "input": dag_input,  # Optional input provided when the DAG is created
+    "specs": {},         # Stores the specifications of all nodes
+    "output": None       # The final output of the DAG
 }
 ```
-where `dag_input` is `None` if not specified when a DAG is created, `specs` is use to save all the specs of nodes, `output` is to set the output of the DAG. These keys are reserved, please do not override them in most cases.
 
-Aside from the reserved keys, you can set anything to **DAG State** in the node's transformation, and subsequent nodes can access this **DAG State** during data transformation via the `dag_state` parameter in `func_transform`.
-
-Please note that, a **DAG State** is defined on a `LangDAG` instance and is accessible to nodes within that DAG during execution.
+You can store any additional data in the `dag_state` during a node's execution, and it will be available to all subsequent nodes.
 
 ### Execution Behavior
 
-In real scenarios, there can be multiple edges from upstream to a node, among which some are unconditional edges and others are conditional edges. We need a way to figure how to control the execution of nodes in a DAG.
+A node can be in one of three states: `initialized`, `finished`, or `aborted`.
 
-Let us first have a look at node execution states (`node.execution_state`) as well as an important LangDAG concept *"acceptable"*.
+- A node is **acceptable** if it has `finished` and its output meets the condition of the edge connecting to the downstream node.
+- By default, a node will only execute if **all** of its upstream parents are "acceptable."
+- This behavior can be changed to allow a node to execute if **any** of its upstream parents are "acceptable."
 
-A node can have 3 state: initialized, finished, aborted.
-
-1. A node is *initialized* when it is create, added to a DAG yet to run.
-
-2. A node is *finished* if it is allowed to run and finished running.
-- Starting nodes in a DAG is always allowed to run.
-- For a node, an upstream node is *"acceptable"* if it is *finished* and condition met(if condition edge exist).
-- For a node, an upstream node is not *"acceptable"* if it is *not finished* or it is *finished* but condition not met.
-- By default behavior, a node will execute and finished if all upstream nodes are *"acceptable"*, otherwise it will not be finished.
-- Default behavior can be changed to: a node will execute and finished if **any** upstream nodes are *"acceptable"*, otherwise it will not be finished.
-
-3. If no exceptions occurred, A node is either *finished* or *aborted*. (You will need to handle exceptions yourself.)
-
+If a node is not executed, its state is marked as `aborted`.
 
 ### Putting It All Together
 
-To summarize:
-- A `node` is a step for transforming data.
-- A DAG organizes these steps.
-- To create a DAG, we create nodes and connect them with (conditional) edges.
-- Nodes can process information and pass it to downstream nodes, enabling step-by-step data processing.
-- Shared information can be saved to **DAG State** , accessible to any subsequent nodes.
-- Execution behavior is up to whether all/any upstream nodes are *"acceptable"*.
+- A **node** is a single step in a workflow.
+- A **DAG** organizes these steps and their dependencies.
+- **Edges** connect nodes and define the flow of data.
+- **Conditional edges** allow for dynamic routing.
+- The **DAG State** provides a shared memory space for all nodes.
+- The **execution behavior** can be customized to control how nodes are triggered.
 
 
 
@@ -207,7 +164,7 @@ from langdag import Node, LangDAG, run_dag
 from langdag.processor import MultiThreadProcessor, SequentialProcessor
 from langdag.selector import MaxSelector
 from langdag.executor import LangExecutor
-from langdag.utils import default, Emptyset, NonEmptyset, Superset, Subset
+from langdag.utils import default, Empty, NotEmpty, ContainsAll, SubsetOf
 from langdag.decorator import make_node
 ```
 
@@ -664,96 +621,56 @@ With this new behavior, `node_5` will execute if either of node_1, node_2, node_
 
 ### Conditions with Special Classes
 
-In some scenarios, you may want to execute a downstream node if a condition is a specific element or subset of the upstream output. Conversely, you might want to execute the downstream node if the upstream output is a specific element or subset of the condition.
+While standard equality checks (`output == condition`) are useful, LangDAG provides a set of special condition classes for more advanced and readable comparisons.
 
-For instance, consider the conditional edge `nodeA >> 1 >> nodeB`. If the upstream output is `[1, 2, 3]` and the condition is `1`, since `1` is part of the list `[1, 2, 3]`, the condition is met, and the downstream `nodeB` will execute.
-
-Similarly, for `nodeA >> [2, 3] >> nodeB`, if the upstream output is `[1, 2, 3]` and the condition is `[2, 3]`, since `[2, 3]` is a subset of `[1, 2, 3]`, the condition is met, and `nodeB` will execute.
-
-However, the syntax above suggests evaluating `1 == [1, 2, 3]` or `[2, 3] == [1, 2, 3]`, both of which return `False`, making them unsuitable for this purpose.
-
-To handle such cases, LangDAG provides special classes:
-
-- `Superset(list)`
-- `Subset(list)`
-- `Emptyset()`
-- `NonEmptyset()`
-- `PretransformSet(func, res)`
-- `NotPretransformSet(func, res)`
-
-These can be imported from `langdag.utils`.
-
-For example, `Superset` has a custom equality (`__eq__`) method, allowing `Superset(a) == b` to return `True` if `b` is a superset of `a`.
+To use them, import them from `langdag.utils` and place them in the condition part of an edge:
 
 ```python
-from langdag.utils import Superset
-
-Superset([1, 2, 3]) == [1, 2, 3, 4]  # returns True
+from langdag.utils import ContainsAll, InstanceOf, Check
+# ...
+node_A >> ContainsAll([1, 2]) >> node_B
+node_C >> InstanceOf(dict) >> node_D
 ```
 
-Here is an example using `Superset`:
+Here are the available special classes:
 
-```python
-nodeA = Node(
-    node_id=1,
-    func_transform=lambda prompt, upstream_output, dag_state: [1, 2]
-)
+- **`>> ContainsAll([...]) >>`**
+  - **Checks:** If the node's output is a superset of the given list.
+  - **Example:** `ContainsAll([1, 2])` is met by an output of `[1, 2, 3]`.
 
-nodeB = Node(
-    node_id=2,
-    func_transform=lambda prompt, upstream_output, dag_state: default(upstream_output)
-)
+- **`>> SubsetOf([...]) >>`**
+  - **Checks:** If the node's output is a subset of the given list.
+  - **Example:** `SubsetOf([1, 2, 3])` is met by an output of `[1, 2]`.
 
-with LangDAG() as dag:
-    dag += nodeA
-    dag += nodeB
-    nodeA >> Superset([1]) >> nodeB
-    # nodeA output [1, 2] is a superset of [1]
-    # so [1, 2] == Superset([1]) returns True
-    # when the condition is True, the downstream node will execute.
-    ...
-```
+- **`>> Empty() >>`**
+  - **Checks:** If the node's output is "empty" (e.g., `None`, `False`, `0`, `""`, `[]`, `{}`).
+  - **Example:** `Empty()` is met by an output of `[]`.
 
-In this example, `[1, 2] == Superset([1])` returns `True`, triggering the execution of `nodeB`.
+- **`>> NotEmpty() >>`**
+  - **Checks:** If the node's output is *not* "empty".
+  - **Example:** `NotEmpty()` is met by an output of `[1]`.
 
-Similarly, you can use `Subset`, `Emptyset`, and `NonEmptyset` from `langdag.utils` to represent a subset of a list, an empty set, and a non-empty set, respectively.
+- **`>> EmptyDict() >>`**
+  - **Checks:** If the node's output is an empty dictionary (`{}`).
+  - **Example:** `EmptyDict()` is met by an output of `{}`.
 
-`PretransformSet` is a convenient class to create conditions that are transformed results from upstream outputs. This is particularly useful if the upstream output is complex and you do not want to add an auxiliary edge between two nodes already connected with a conditional edge.
+- **`>> NotEmptyDict() >>`**
+  - **Checks:** If the node's output is a non-empty dictionary.
+  - **Example:** `NotEmptyDict()` is met by an output of `{'key': 'value'}`.
 
-For example, suppose `nodeA`'s output is `{1: {nestDict...}, 2: {nestDict...}}`, and "nodeA must output a dict containing 1 as a key" is the condition to execute `nodeB`. Without `PretransformSet`, you would need to add another node to get a simpler output:
+- **`>> InstanceOf(type) >>`**
+  - **Checks:** If the node's output is an instance of the given type/class.
+  - **Example:** `InstanceOf(dict)` is met by an output of `{'key': 'value'}`.
 
-```python
-with LangDAG() as dag:
-    dag += nodeA
-    dag += nodeA_if_1_in_key
-    dag += nodeB
-    nodeA_if_1_in_key >> True >> nodeB
-    nodeA >> nodeB
-```
+- **`>> Check(func, expected_result) >>`**
+  - **Checks:** If the result of `func(output)` equals the `expected_result`. This is useful for complex checks without adding extra nodes.
+  - **Example:** `Check(lambda x: x['status'], "success")` is met by an output of `{'status': 'success', 'data': [...]}`.
 
-This is inconvenient, and since `nodeB` has two upstream nodes, you must specify the `node_id` key when using `upstream_output[node_id]` in `func_transform`.
+- **`>> CheckNot(func, unexpected_result) >>`**
+  - **Checks:** If the result of `func(output)` does *not* equal the `unexpected_result`. 
+  - **Example:** `CheckNot(lambda x: x['status'], "error")` is met by an output of `{'status': 'success', 'data': [...]}`.
 
-With `PretransformSet`, you can do as follows instead:
-
-```python
-with LangDAG() as dag:
-    dag += nodeA
-    dag += nodeB
-    nodeA >> PretransformSet(lambda x: list(x.keys()), Superset([1])) >> nodeB
-```
-
-Here we use `PretransformSet` and `Superset` together, and it will evaluate 
-
-```python
-a == PretransformSet(func=lambda x: list(x.keys()), res=Superset([1]))
-```
-
-which returns `True` because `func(a) == res`, where `func(a)` returns `[1, 2]` and `[1, 2]` is a superset of `[1]`.
-
-Please note that `func` is a function with a single parameter.
-
-**Note**: The condition on conditional edges will only be evaluate if the upstream node is *finished*, so when you define a special conditon, you can suppose that there is always an output from upstream without first checking it.
-
+These classes allow you to build complex and highly readable conditional logic directly into your DAG structure.
 ### Node `execution_state`
 
 A node can be in one of three possible execution states (all represented as strings):
@@ -1112,225 +1029,99 @@ myCustomExecutor = LangExecutor(
 
 ## 📕 API Reference
 
-## Main Classes
+### `Node`
 
-### Node *(class)*
-
-The `Node` class in LangDAG represents a single unit of work or computation in the DAG.
-
-```python
-from langdag import Node
-```
+The `Node` class represents a single unit of work in a DAG.
 
 **Parameters:**
 
-- **`node_id`** (`Any`, *required*):  
-  A unique identifier for the node.
-  
-- **`node_desc`** (`Any`, *optional*, defaults to `None`):  
-  A description of the node, accessible via `node.node_desc`.
-  
-- **`prompt`** (`Any`, *optional*, defaults to `None`):  
-  A predefined prompt for the node.
+- **`node_id`** (`Any`): A unique identifier for the node.
+- **`node_desc`** (`Any`, optional): A static description for the node.
+- **`prompt`** (`Any`, optional): A predefined input for the node.
+- **`spec`** (`Dict | Any`, optional): A specification for the node, useful for tool-calling scenarios.
+- **`func_desc`** (`Callable`, optional): A function that dynamically generates a description for the node.
+- **`func_transform`** (`Callable`, optional): A synchronous or asynchronous function that defines the node's execution logic.
+- **`func_set_dag_output_when`** (`Callable`, optional): A function that determines if the node's output should be set as the final output of the DAG.
 
-- **`spec`** (`Dict | Any`, *optional*, defaults to `None`):
-  A optional property for saving specification of the node as a tool (Example spec: https://cookbook.openai.com/examples/how_to_call_functions_with_chat_models#basic-concepts )
+**Methods:**
 
-- **`func_desc`** (`Callable`, *optional*, defaults to `None`):  
-  A function that generates a dynamic description from `prompt`, `upstream_output`, and `dag_state`.
-  
-- **`func_transform`** (`Callable`, *optional*, defaults to `None`):  
-  A function that transforms `prompt`, `upstream_output`, and `dag_state` into the node's output. Can be a sync or async function.
-  
-- **`func_set_dag_output_when`** (`Callable`, *optional*, defaults to `None`):  
-  A function returns boolean that decides whether the `node_output` should be set as the final output of the DAG (dag.dag_state["output"]) based on `prompt`, `upstream_output`, `node_output`, and `execution_state`.
+- **`reset()`**: Resets the node to its initial state.
+- **`get_info()`**: Returns a dictionary of the node's attributes.
+- **`add_spec(spec_dict)`**: Adds a specification to the node.
+- **`exec_if_any_upstream_acceptable()`**: Configures the node to execute if any of its upstream dependencies are met.
 
-**Instance Methods:**
+### `LangDAG`
 
-- **`reset()`** -> None:
-  Resets the node to its original state as when instantiated.
-
-- **`get_info()`** -> Dict:
-  Returns a dict containing attributes of the node.
-
-- **`add_spec(spec_dict: Dict)`** -> None:
-  Save parameter `spec_dict` to node.spec
-
-- **`exec_if_any_upstream_acceptable()`**:  
-  NOT default behavior. Configures the node to execute when **any** upstream nodes are "acceptable". See the "Execution Behavior" section for the definition of "acceptable".
-
-- **`atransform(prompt, upstream_output, dag_state)`** -> `Any`:
-    Asynchronously transforms the input to an output.
-
-- **`aset_desc(prompt, upstream_output, dag_state)`** -> `None`:
-    Asynchronously sets the node's description.
-
-- **`arun_node()`** -> `None`:
-    Asynchronously runs the node's transformation logic.
-   
-
-
-### `LangDAG` *(class)*
-
-The `LangDAG` class defines the Directed Acyclic Graph (DAG) structure for managing nodes and their execution.
-
-```python
-from langdag import LangDAG
-```
+The `LangDAG` class defines the structure of the workflow.
 
 **Parameters:**
 
-- **`dag_input`** (`Any`, *optional*, defaults to `None`):  
-  input for a dag, accessible to func_transform in every Node.
+- **`dag_input`** (`Any`, optional): An initial input that is accessible to all nodes in the DAG.
 
-**Instance Methods:**
+**Methods:**
 
-- **`all_starts()`**:  
-  Returns all the starting nodes in the DAG.
-  
-- **`all_terminals()`**:  
-  Returns all the terminating nodes in the DAG.
+- **`all_starts()`**: Returns a list of all starting nodes.
+- **`all_terminals()`**: Returns a list of all terminal nodes.
+- **`reset_all_nodes()`**: Resets all nodes in the DAG to their initial state.
+- **`inspect_execution()`**: Prints a tree diagram of the execution flow to the console.
+- **`snapshot(path)`**: Saves the current state of the DAG to a file.
+- **`recover(path)`**: A static method that loads a DAG from a snapshot.
 
-- **`reset_all_nodes()`**:  
-  Reset all nodes (node.reset) in this dag to its original state (when instantialized)
+### `LangExecutor`
 
-- **`inspect_execution()`**:  
-  Print to console a rich.tree to show DAG execution (dag.inspect_execution())
-
-- **`snapshot(path: str)`**:
-  Saves the current state of the DAG to a file at the given `path`.
-
-- **`recover(path: str)`** -> `LangDAG`:
-  A static method that loads and returns a `LangDAG` instance from a snapshot file.
-  
-
-
-### LangExecutor *(class)*
-
-The `LangExecutor` class handles the execution of nodes in the DAG, with optional hooks for custom behavior. For asynchronous execution, see `AsyncLangExecutor`.
-
-```python
-from langdag.executor import LangExecutor
-```
+The `LangExecutor` class handles the execution of synchronous workflows.
 
 **Parameters:**
 
-- **`verbose`** (`boolean`, *optional*, defaults to `True`):  
-  When `verbose=True`, execution information is printed to the console.
-  
-- **`func_start_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node`, executing custom actions before the node executes.
-  
-- **`func_finish_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node`, executing custom actions after the node finishes executing.
+- **`verbose`** (`bool`, optional): Toggles the display of execution logs.
+- **`func_start_hook`** (`Callable`, optional): A function to be executed before a node starts.
+- **`func_finish_hook`** (`Callable`, optional): A function to be executed after a node finishes.
 
+### `AsyncLangExecutor`
 
-### AsyncLangExecutor *(class)*
-
-The `AsyncLangExecutor` class handles the asynchronous execution of nodes in the DAG, supporting both sync and async nodes.
-
-```python
-from langdag.executor import AsyncLangExecutor
-```
+The `AsyncLangExecutor` class handles the execution of asynchronous workflows.
 
 **Parameters:**
 
-- **`verbose`** (`boolean`, *optional*, defaults to `True`):  
-  When `verbose=True`, execution information is printed to the console.
-  
-- **`func_start_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node`, executing custom actions before the node executes. Can be a sync or async function.
-  
-- **`func_finish_hook`** (`Callable`, *optional*, defaults to `None`):  
-  A function that takes `node`, executing custom actions after the node finishes executing. Can be a sync or async function.
+- **`verbose`** (`bool`, optional): Toggles the display of execution logs.
+- **`func_start_hook`** (`Callable`, optional): A synchronous or asynchronous function to be executed before a node starts.
+- **`func_finish_hook`** (`Callable`, optional): A synchronous or asynchronous function to be executed after a node finishes.
 
+### `run_dag()`
 
-
-
-## Functions
-
-### `run_dag(dag, processor, selector, executor, verbose, delay, progressbar, snapshot_on_error_path)` *(function)*
-
-Executes the DAG with various configurations for processing and execution.
-
-```python
-from langdag import run_dag
-# Optional imports for processors:
-from langdag.processor import SequentialProcessor, MultiThreadProcessor
-# Optional imports for selectors:
-from langdag.selector import FullSelector, MaxSelector
-```
+Executes a DAG.
 
 **Parameters:**
 
-- **`dag`** (`LangDAG`, *required*):  
-  The DAG to run.
-  
-- **`processor`** (`optional`, defaults to `SequentialProcessor()`):  
-  Can be set to `SequentialProcessor()` for sequential execution or `MultiThreadProcessor()` for concurrent execution.
-  
-- **`selector`** (`optional`, defaults to `FullSelector()`):  
-  When using `MultiThreadProcessor()`, set to `FullSelector()` for unlimited concurrent execution, or use `MaxSelector(max_no)` to limit the maximum number of nodes executing concurrently to `max_no`.
-  
-- **`executor`** (`optional`, defaults to `LangExecutor`):  
-  An instance of `LangExecutor` for executing the DAG.
+- **`dag`** (`LangDAG`): The DAG to execute.
+- **`processor`** (optional): The processor to use for execution (`SequentialProcessor` or `MultiThreadProcessor`).
+- **`selector`** (optional): The selector to use for concurrent execution (`FullSelector` or `MaxSelector`).
+- **`executor`** (optional): The executor to use for execution (`LangExecutor`).
+- **`verbose`** (`bool`, optional): Toggles the display of execution logs.
+- **`delay`** (`float`, optional): A delay in seconds to add between node executions.
+- **`progressbar`** (`bool`, optional): Toggles the display of a progress bar.
+- **`snapshot_on_error_path`** (`str`, optional): The file path to save a snapshot to in case of an error.
 
-- **`verbose`** (`Boolean`, `optional`, defaults to `True`):  
-  When set to False, it disable verbose logging.
+### `arun_dag()`
 
-- **`delay`** (`Boolean|int|float`, `optional`, defaults to `False`):  
-  When set to True, it slows down every node execution by 1 sec; When set to a number N, it slows down every node execution by N sec. The `slower` parameter is also available for backward compatibility but is deprecated.
+Asynchronously executes a DAG. It accepts the same parameters as `run_dag`, but uses `AsyncLangExecutor` by default.
 
-- **`progressbar`** (`Boolean`, `optional`, defaults to `True`):  
-  By default set to `True`, a progress bar shows up when runing a dag. When set to False, it disable progressbar.
+### `resume_dag()`
 
-- **`snapshot_on_error_path`** (`str`, `optional`, defaults to `None`):
-  If provided, the DAG state will be saved to this path upon any execution error.
+Resumes the execution of a recovered DAG. It accepts the same parameters as `run_dag`.
 
+### `default()`
 
-### `arun_dag(...)` *(function)*
-
-Asynchronously executes the DAG. It accepts the same parameters as `run_dag`, but uses `AsyncLangExecutor` by default.
-
-```python
-from langdag import arun_dag
-```
-
-### `resume_dag(...)` *(function)*
-
-Precisely resumes a recovered DAG from the last point of failure. It accepts the same parameters as `run_dag`.
-
-```python
-from langdag import resume_dag
-```
-
-### `default(dict)` *(function)*
-
-Retrieves the default value from a dictionary containing a single item. If the dictionary does not have exactly one item, it raises an error.
-
-```python
-from langdag.utils import default
-```
-
-**Parameters:**
-
-- **`dict`** (`Dict`, *required*):  
-  A dictionary with a single item.
-
-**Usage Example:**
-
-```python
-upstream_output = {'key_1': 'value_1'}
-default(upstream_output)  # returns 'value_1'
-```
+A utility function that retrieves the value from a single-item dictionary.
 
 ## Customization with `paradag`
 
-`langdag` uses `paradag` as the DAG engine. This means you can  customize processors, selectors, and executors according to your specific needs with `paradag`.
-
+LangDAG is built on top of `paradag`, which allows for advanced customization of processors, selectors, and executors.
 
 ## Contributing
-Contributions are welcome! Please submit a pull request or open an issue to discuss your ideas.
+
+Contributions are welcome! Please feel free to submit a pull request or open an issue to discuss your ideas.
 
 ## License
+
 This project is licensed under the MIT License.
