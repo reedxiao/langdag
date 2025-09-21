@@ -2,6 +2,21 @@
 
 ![inspect exec](./docs/inspect_exec.png)
 
+<div align="center">
+  <br />
+  <p align="center">
+    Build powerful and observable LLM agent workflows with Directed Acyclic Graphs (DAGs).
+  </p>
+  <p align="center">
+    <a href="https://pypi.org/project/langdag/">
+      <img alt="PyPI" src="https://img.shields.io/pypi/v/langdag.svg?color=blue">
+    </a>
+    <a href="./LICENSE.txt">
+      <img alt="License" src="https://img.shields.io/pypi/l/langdag.svg?color=blue">
+    </a>
+  </p>
+</div>
+
 ## Introduction
 
 > **Note:** LangDAG is currently experimental and under active development.
@@ -35,6 +50,23 @@ While simple LLM agent workflows are straightforward to build, their complexity 
 - **Framework Lock-in:** Inflexible frameworks can limit the ability to adapt and extend workflows.
 
 LangDAG is designed to address these challenges, offering a structured and scalable solution for building and managing sophisticated LLM agent workflows.
+
+### A Hybrid Approach: DAGs for Orchestration, Tool-Calling for Execution
+
+While LangDAG provides a powerful way to structure complex workflows, some tasks require more flexibility than a predefined graph can offer. For example, an agent might need to perform an unknown number of steps to fulfill a request, like reading a file, modifying its content, and then renaming it.
+
+To address this, LangDAG promotes a powerful **hybrid design philosophy**:
+
+1.  **High-Level Orchestration with a DAG**: Use the `LangDAG` to define the major, predictable stages of your agent's workflow. This provides a clear, observable structure. A typical pattern might be:
+    `analyze_intent` >> `execute_task` >> `compose_response`
+
+2.  **Flexible Execution with a Tool-Calling Node**: Encapsulate the complex, dynamic parts of the workflow within a single, powerful node. This "executor" node contains its own LLM-driven loop that can intelligently call a set of predefined tools (e.g., file I/O, web search) as many times as needed to complete the task.
+
+This approach combines the best of both worlds:
+-   **Structure & Observability**: The DAG gives you a clear overview of the agent's high-level process.
+-   **Flexibility & Autonomy**: The tool-calling node gives the agent the freedom to reason and act dynamically to solve complex problems.
+
+This is analogous to project management: the DAG represents the project milestones, while the tool-calling node is like an autonomous team member who has the skills (tools) and intelligence to figure out the detailed steps required to hit those milestones.
 
 ## 📑 Contents
 
@@ -277,6 +309,51 @@ Though the `@make_node()` decorator provide a different way to create a node by 
 Use spec parameter in `@make_node()` decorator to add function / tool spec to this node.
 This is optional, but will be helpful if you are working on function calling or tool calling, and 
 want to define function / tool spec on a Node. After adding a spec to a `node`, you can acess the spec with `node.spec`, and you can also get a list of specs of all nodes (if spec available) in a DAG `dag` by `dag.get_all_specs()`.
+
+### Empowering Nodes with a `Toolbox`
+
+To support the hybrid design philosophy, LangDAG provides a `Toolbox` class. This allows you to register a collection of Python functions as "tools" that a tool-calling node can execute.
+
+**Creating and Using a Toolbox:**
+
+1.  **Instantiate a Toolbox:**
+    ```python
+    from langdag.decorator import Toolbox
+    toolbox = Toolbox()
+    ```
+
+2.  **Register Functions as Tools:**
+    Use the `@toolbox.add_tool()` decorator on any function you want to make available to your agent.
+
+    ```python
+    @toolbox.add_tool(auto_spec=True)
+    def read_file(filepath: str):
+        """
+        Reads the content of a specified file.
+        filepath (str): The path to the file to read.
+        """
+        # ... implementation ...
+    ```
+
+**Tool Specification (`spec`):**
+
+For an LLM to know how to use your functions, it needs a specification (a JSON schema). `Toolbox` gives you two options:
+
+-   **`auto_spec=True` (Recommended)**: Automatically generates a spec from your function's signature and docstring. Just add type hints and a clear docstring, and LangDAG handles the rest.
+-   **`spec={...}`**: Manually provide a complete, OpenAI-compatible JSON schema for full control.
+
+3.  **Using the Toolbox in a Node:**
+    Inside a tool-calling node, you can pass the list of all tool specs to your LLM and use `toolbox.call_tool_by_name()` to execute the functions the LLM chooses.
+
+    ```python
+    # Get all specs for the LLM
+    tools = toolbox.get_all_specs()
+
+    # Execute a function chosen by the LLM
+    result = toolbox.call_tool_by_name("read_file", filepath="/path/to/file.txt")
+    ```
+
+The `Toolbox` makes it easy to create a library of capabilities that your agent can dynamically use to solve a wide range of problems.
 
 ### Default Upstream Output
 
@@ -547,12 +624,12 @@ This 'equal' property is also utilized in special condition defining, as we will
 
 ### Multiple Conditions and Upstream Nodes
 
-As we mentioned in *"Exectuion behavior"*:
+We define *"Exectuion behavior"* as:
 
 - For a node, an upstream node is *"acceptable"* if it is *finished* and condition met(if condition edge exist).
 - For a node, an upstream node is not *"acceptable"* if it is *not finished* or it is *finished* but condition not met.
 
-By default, a node will execute and finished if all upstream nodes are *"acceptable"*, otherwise it will not be finished (ie, itwill be aborted).
+By default, a node will execute if all upstream nodes are *"acceptable"*, otherwise it will not be executed (ie, it will be aborted).
 
 Consider the following example:
 
@@ -613,7 +690,7 @@ with LangDAG("my input") as dag:
     run_dag(dag)
 ```
 
-With this new behavior, `node_5` will execute if either of node_1, node_2, node_4 is **acceptable*, that is when 
+With this new behavior, `node_5` will execute if either of node_1, node_2, node_4 is **acceptable**, that is when 
 - [`node_1` is finished (as a starting node, `node_1` will always finished) and outputs `1` ]
 - **or** [`node_2` is finished and outputs `True` (as a starting node, `node_2` will always finished) ]
 - **or** [`node_4` is finished (ie., `node_3` outputs `3` and the condition `3` is met, and `node_4` is not aborted).]
@@ -746,51 +823,6 @@ asyncio.run(main())
 ```
 
 `arun_dag` uses `AsyncLangExecutor` by default to handle both sync and async nodes.
-
-
-**Example with FastAPI:**
-
-Here's how you can use an async DAG within a FastAPI application:
-
-```python
-# main.py
-import asyncio
-from fastapi import FastAPI
-from langdag import Node, LangDAG, arun_dag
-
-# 1. Define an async node
-async def a_transform(prompt, upstream_output, dag_state):
-    # Simulate an async I/O operation
-    await asyncio.sleep(1)
-    return f"Input was: {dag_state['input']}"
-
-node_async = Node(
-    node_id="node_async",
-    func_transform=a_transform
-)
-
-# 2. Create a FastAPI app
-app = FastAPI()
-
-# 3. Define an endpoint that uses the DAG
-@app.post("/process")
-async def process_data(data: dict):
-    user_input = data.get("input")
-
-    with LangDAG(dag_input=user_input) as dag:
-        dag += node_async
-        # Run the DAG asynchronously
-        await arun_dag(dag, progressbar=False, verbose=False)
-
-    # Return the result from the DAG's state
-    return {"result": dag.dag_state["output"]}
-
-# To run this example:
-# 1. Install necessary packages: pip install fastapi "uvicorn[standard]"
-# 2. Save the code as main.py
-# 3. Run the server: uvicorn main:app --reload
-# 4. Send a POST request to http://127.0.0.1:8000/process with a JSON body like: {"input": "hello world"}
-```
 
 
 **Example with FastAPI:**
@@ -1022,10 +1054,6 @@ myCustomExecutor = LangExecutor(
 )
 ```
 
-### Function calling (to-do)
-
-(see adapted openai function calling example)
-
 
 ## 📕 API Reference
 
@@ -1066,6 +1094,7 @@ The `LangDAG` class defines the structure of the workflow.
 - **`inspect_execution()`**: Prints a tree diagram of the execution flow to the console.
 - **`snapshot(path)`**: Saves the current state of the DAG to a file.
 - **`recover(path)`**: A static method that loads a DAG from a snapshot.
+- **`get_node(node_id)`**: Returns the node instance with the given node_id from the DAG. Returns None if no node with the given id is found.
 
 ### `LangExecutor`
 
