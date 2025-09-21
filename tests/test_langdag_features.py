@@ -8,7 +8,7 @@ from langdag import Node, LangDAG, run_dag, arun_dag, resume_dag
 from langdag.processor import SequentialProcessor, MultiThreadProcessor
 from langdag.executor import LangExecutor, AsyncLangExecutor
 from langdag.decorator import make_node
-from langdag.utils import default, Superset
+from langdag.utils import default, ContainsAll
 from paradag.error import VertexExecutionError
 
 # Fixtures for reusable components
@@ -50,6 +50,22 @@ def test_dag_creation_and_node_addition(simple_nodes):
     
     assert len(dag.vertices()) == 2
     assert simple_nodes["start"] in dag.vertices()
+
+def test_iadd_with_list(simple_nodes):
+    """Tests the `dag += [node1, node2]` syntax."""
+    with LangDAG() as dag:
+        nodes_to_add = [simple_nodes["start"], simple_nodes["process"]]
+        dag += nodes_to_add
+    
+    assert len(dag.vertices()) == 2
+    assert simple_nodes["start"] in dag.vertices()
+    assert simple_nodes["process"] in dag.vertices()
+
+    with LangDAG() as dag:
+        invalid_nodes = [simple_nodes["start"], "not_a_node"]
+        with pytest.raises(Exception):
+            dag += invalid_nodes
+
 
 def test_sequential_execution(simple_nodes):
     """Tests a simple A -> B -> C sequential workflow."""
@@ -222,13 +238,13 @@ async def test_async_execution():
     assert dag.dag_state["output"] == "async_start"
 
 def test_conditional_edge_with_special_class():
-    """Tests conditional edges using special classes like Superset."""
+    """Tests conditional edges using special classes like ContainsAll."""
     node_a = Node(node_id="a", func_transform=lambda p, u, d: [1, 2, 3])
     node_b = Node(node_id="b", func_transform=lambda p, u, d: "success")
 
     with LangDAG() as dag:
         dag.add_node(node_a, node_b)
-        node_a >> Superset([1, 3]) >> node_b
+        node_a >> ContainsAll([1, 3]) >> node_b
         run_dag(dag)
 
     assert node_b.execution_state == "finished"
@@ -241,6 +257,28 @@ def test_dag_input():
         dag += node
         run_dag(dag)
     assert dag.dag_state["output"] == "test_input"
+
+def test_get_node_by_id(simple_nodes):
+    """Tests retrieving a node from the DAG by its ID."""
+    with LangDAG() as dag:
+        dag += simple_nodes["start"]
+        dag += simple_nodes["process"]
+
+        retrieved_node = dag.get_node("start")
+        assert retrieved_node is not None
+        assert retrieved_node.node_id == "start"
+        assert retrieved_node is simple_nodes["start"]
+
+        non_existent_node = dag.get_node("non_existent")
+        assert non_existent_node is None
+
+def test_error_propagation_on_fail():
+    """Tests that an exception in a node's transform is propagated."""
+    failing_node = Node(node_id="failing", func_transform=lambda p, u, d: 1 / 0)
+    with LangDAG() as dag:
+        dag += failing_node
+        with pytest.raises(VertexExecutionError):
+            run_dag(dag)
 
 from paradag.error import VertexExecutionError
 
