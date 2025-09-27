@@ -157,6 +157,7 @@ def run_dag(dag: LangDAG,
         )
         actual_delay = slower
 
+    executor._emit_event('before_dag_execute', dag)
     try:
         for vtx in dag.all_terminals():
             vtx.func_set_dag_output_when = lambda p, up, out, state: state != "aborted"
@@ -166,6 +167,7 @@ def run_dag(dag: LangDAG,
             executor.verbose = False
         executor.dag = dag
         res = _raw_run(dag, selector, processor, executor, actual_delay, progressbar)
+        executor._emit_event('after_dag_execute', dag)
     except Exception as e:
         if snapshot_on_error_path:
             log.error(f"Error occurred during DAG execution, snapshotting to {snapshot_on_error_path}...")
@@ -323,6 +325,7 @@ async def arun_dag(dag: LangDAG,
     Asynchronously runs a DAG, supporting both async and sync nodes.
     If you have any `async def` nodes, you must use this runner.
     """
+    await executor._emit_event_async('before_dag_execute', dag)
     try:
         for vtx in dag.all_terminals():
             vtx.func_set_dag_output_when = lambda p, up, out, state: state != "aborted"
@@ -330,6 +333,7 @@ async def arun_dag(dag: LangDAG,
             executor.verbose = False
         executor.dag = dag
         res = await _araw_run(dag, selector, None, executor, delay, progressbar)
+        await executor._emit_event_async('after_dag_execute', dag)
     except Exception as e:
         if snapshot_on_error_path:
             log.error(f"Error during async DAG execution, snapshotting to {snapshot_on_error_path}...")

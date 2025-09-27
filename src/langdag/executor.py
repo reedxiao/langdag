@@ -4,6 +4,7 @@ from langdag.utils import merge_dicts
 from langdag.error import ConflictConditionsError
 from rich import print
 from langdag.core import Node, LangDAG
+from langdag.plugins.base import Plugin
 import asyncio
 import inspect
 
@@ -39,12 +40,19 @@ class LangExecutor:
             verbose: bool = True,
             func_start_hook: Optional[Callable[[Node], Any]] = None,
             func_finish_hook: Optional[Callable[[Node], Any]] = None,
+            plugins: Optional[List[Plugin]] = None,
         ) -> None:
         self.__upstream_output: Dict = {}
         self.verbose = verbose
         self.func_start_hook = func_start_hook
         self.func_finish_hook= func_finish_hook
         self.dag: Optional["LangDAG"] = None
+        self.plugins = plugins or []
+
+    def _emit_event(self, event_name: str, *args, **kwargs):
+        for plugin in self.plugins:
+            if hasattr(plugin, event_name):
+                getattr(plugin, event_name)(*args, **kwargs)
 
     def param(self, vertex):
         node_itself = vertex
@@ -59,14 +67,21 @@ class LangExecutor:
         node_itself, node_upstream_output = param
         node_itself.upstream_output = node_upstream_output
 
-        
-
         if self.verbose : 
             log.info("   (2) [bold yellow]->o[/] [bold yellow]%s[/] received upstream: %s", 
                      node_itself.node_id, node_upstream_output, 
                      extra={"markup": True})
 
-        node_itself.run_node(verbose = self.verbose, func_start_hook=self.func_start_hook)
+        try:
+            self._emit_event('before_node_execute', node_itself)
+            node_itself.run_node(verbose = self.verbose, func_start_hook=self.func_start_hook)
+            self._emit_event('on_node_success', node_itself)
+        except Exception as e:
+            self._emit_event('on_node_error', node_itself, e)
+            raise e
+        finally:
+            self._emit_event('after_node_execute', node_itself)
+
 
         if self.verbose : 
             log.info("     (3) [bold yellow]o->[/] [bold yellow]%s[/] output: %s", 
@@ -124,6 +139,15 @@ class AsyncLangExecutor(LangExecutor):
     An executor that handles both synchronous and asynchronous node execution
     for use with `arun_dag`.
     """
+    async def _emit_event_async(self, event_name: str, *args, **kwargs):
+        for plugin in self.plugins:
+            if hasattr(plugin, event_name):
+                method = getattr(plugin, event_name)
+                if inspect.iscoroutinefunction(method):
+                    await method(*args, **kwargs)
+                else:
+                    method(*args, **kwargs)
+
     async def execute(self, param):
         """
         Asynchronously executes a node's transform function.
@@ -144,11 +168,22 @@ class AsyncLangExecutor(LangExecutor):
                      node_itself.node_id, node_upstream_output,
                      extra={"markup": True})
 
-        # This is the core async logic
-        if inspect.iscoroutinefunction(node_itself.func_transform):
-            await node_itself.arun_node(verbose=self.verbose, func_start_hook=self.func_start_hook)
-        else:
-            await asyncio.to_thread(node_itself.run_node, verbose=self.verbose, func_start_hook=self.func_start_hook)
+        try:
+            await self._emit_event_async('before_node_execute', node_itself)
+            
+            # This is the core async logic
+            if inspect.iscoroutinefunction(node_itself.func_transform):
+                await node_itself.arun_node(verbose=self.verbose, func_start_hook=self.func_start_hook)
+            else:
+                await asyncio.to_thread(node_itself.run_node, verbose=self.verbose, func_start_hook=self.func_start_hook)
+            
+            await self._emit_event_async('on_node_success', node_itself)
+        except Exception as e:
+            await self._emit_event_async('on_node_error', node_itself, e)
+            raise e
+        finally:
+            await self._emit_event_async('after_node_execute', node_itself)
+
 
         if self.verbose:
             log.info("     (3) [bold yellow]o->[/] [bold yellow]%s[/] output: %s",
