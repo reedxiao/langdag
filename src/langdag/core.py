@@ -38,6 +38,8 @@ class LangDAG(DAG):
     Args:
         dag_input (`Any`, *optional*`): 
             input for a dag, accessible to func_transform in every Node.
+        dag_id (`str`, *optional*):
+            A unique identifier for the DAG. If not provided, it will be None.
     """
     _current_dag: ContextVar[Optional['LangDAG']] = ContextVar('current_dag', default=None)
 
@@ -53,9 +55,10 @@ class LangDAG(DAG):
     def reset_current(token):
         LangDAG._current_dag.reset(token)
     
-    def __init__(self, dag_input : Optional[ str | Any] = None):
+    def __init__(self, dag_input : Optional[ str | Any] = None, dag_id: Optional[str] = None):
         super().__init__()
         self.dag_state = {
+                "id": dag_id,
                 "input": dag_input,
                 "specs": {},
                 "output": None
