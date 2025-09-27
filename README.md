@@ -33,7 +33,8 @@ Drawing inspiration from established data orchestration tools like Airflow, Lang
 - **Concurrent Execution:** Automatically identifies and executes independent tasks in parallel.
 - **Asynchronous Operations:** Native support for `async` operations, ideal for I/O-bound tasks.
 - **Conditional Routing:** Dynamically route workflows using conditional edges based on node outputs.
-- **Execution Hooks:** Customize behavior by injecting logic at critical points in the execution lifecycle.
+- **Extensible Plugin System:** Easily add custom logic for logging, monitoring, and observability.
+- **Lifecycle Hooks:** Customize behavior by injecting logic at critical points in the execution lifecycle.
 - **Enhanced Observability:** Visualize the execution flow with a console-based tree diagram for easier debugging.
 - **Modular Architecture:** A consistent and reusable structure for all nodes.
 
@@ -140,6 +141,7 @@ The `dag_state` is initialized with the following reserved keys:
 
 ```python
 {
+    "id": dag_id,        # Optional ID provided when the DAG is created
     "input": dag_input,  # Optional input provided when the DAG is created
     "specs": {},         # Stores the specifications of all nodes
     "output": None       # The final output of the DAG
@@ -226,12 +228,18 @@ node_1 = Node(
 Here’s an example node_2 is generating an answer based on city name extracted by node_1 from the use query.
 
 ```python
+# Placeholder function for demonstration
+def get_weather(city: str) -> str:
+    return "sunny"
+
 node_2 = Node(
     node_id="node_2",
     prompt="The weather in {city} is {weather}.",
     func_transform=lambda prompt, upstream_output, dag_state: 
-        prompt.format(city=upstream_output['node_1'], 
-                      weather=get_weather(upstream_output['node_1']))
+        prompt.format(
+            city=upstream_output['node_1'], 
+            weather=get_weather(upstream_output['node_1'])
+        )
 )
 ```
 
@@ -963,44 +971,150 @@ with LangDAG() as dag:
     )
 ```
 
+### 🔌 Plugin System
 
-### Node Hooks
+LangDAG features a powerful, event-driven plugin system that allows you to hook into the core execution lifecycle. This makes it easy to add custom logic for logging, advanced monitoring, external integrations, and more, without modifying the core framework.
 
-You can set the parameters `func_start_hook` and `func_finish_hook` when instantiating a `LangExecutor`.
+**How It Works:**
+
+The system is built around a `Plugin` base class. You can create your own plugin by inheriting from this class and overriding the methods for the events you want to handle.
+
+The available event hooks are:
+- `before_dag_execute(dag)`
+- `after_dag_execute(dag)`
+- `before_node_execute(node)`
+- `after_node_execute(node)`
+- `on_node_success(node)`
+- `on_node_error(node, error)`
+
+**Creating a Custom Plugin:**
+
+It's as simple as creating a class that inherits from `langdag.plugins.base.Plugin` and implementing the methods you need.
+
+```python
+from langdag.plugins.base import Plugin
+
+class MyLoggingPlugin(Plugin):
+    def before_node_execute(self, node):
+        print(f"🚀 Starting execution of node: {node.node_id}")
+
+    def on_node_success(self, node):
+        print(f"✅ Node {node.node_id} finished successfully.")
+        print(f"   Output: {node.node_output}")
+```
+
+**Using a Plugin:**
+
+To use your plugin, simply instantiate it and pass it to the `LangExecutor` when you run your DAG.
+
+```python
+from langdag.executor import LangExecutor
+
+my_plugin = MyLoggingPlugin()
+executor = LangExecutor(plugins=[my_plugin])
+
+run_dag(dag, executor=executor)
+```
+
+**Example: Integrating with Langfuse for Advanced Observability**
+
+The plugin system makes it trivial to integrate with powerful third-party tools. For example, you can add detailed, trace-level observability to your entire workflow using [Langfuse](https://langfuse.com/).
+
+Here’s how a `LangfusePlugin` could look:
+
+```python
+# src/langdag/plugins/langfuse.py
+from langdag.plugins.base import Plugin
+from langfuse import Langfuse
+
+class LangfusePlugin(Plugin):
+    def __init__(self, **kwargs):
+        self.langfuse = Langfuse(**kwargs)
+        self.trace = None
+        self.spans = {}
+
+    def before_dag_execute(self, dag):
+        self.trace = self.langfuse.trace(
+            name="my-agent-trace",
+            metadata=dag.dag_state
+        )
+
+    def before_node_execute(self, node):
+        if self.trace:
+            span = self.trace.span(
+                name=node.node_id,
+                metadata={"description": node.node_desc},
+                input=node.upstream_output
+            )
+            self.spans[node.node_id] = span
+
+    def on_node_success(self, node):
+        if node.node_id in self.spans:
+            self.spans[node.node_id].end(output=node.node_output)
+
+    def on_node_error(self, node, error):
+        if node.node_id in self.spans:
+            self.spans[node.node_id].end(level='ERROR', status_message=str(error))
+            
+    def after_dag_execute(self, dag):
+        if self.trace:
+            self.trace.update(output=dag.dag_state["output"])
+
+```
+
+Now, you can get rich, interactive traces of your DAGs just by adding the plugin to the executor:
+
+```python
+# Add your Langfuse credentials
+langfuse_plugin = LangfusePlugin(
+    public_key="pk-lf-...",
+    secret_key="sk-lf-...",
+    host="https://cloud.langfuse.com"
+)
+
+# Pass the plugin to the executor
+executor = LangExecutor(plugins=[langfuse_plugin])
+run_dag(dag, executor=executor)
+```
+This will produce a detailed trace in Langfuse, giving you unparalleled insight into your agent's execution flow.
+
+### Extending LangDAG: Plugins vs. Hooks
+
+LangDAG offers two primary mechanisms to extend its functionality: the full-featured **Plugin System** and simple **Lifecycle Hooks**.
+
+- **Plugins** are powerful, stateful, and class-based. They provide a structured way to handle complex logic and integrate with external systems by giving you access to the complete DAG and node lifecycle, including error handling.
+- **Hooks** (`func_start_hook`, `func_finish_hook`) are lightweight, stateless functions. They are perfect for simple, one-off actions that don't require managing state or complex logic.
+
+**When to Use Which:**
+
+| Use Case                               | Recommendation  | Why?                                                                                             |
+| -------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------ |
+| Quick debugging or logging             | **Hooks**       | Simple `lambda` functions are perfect for quick, temporary logging without creating a new class.   |
+| Simple, stateless notifications        | **Hooks**       | If you just need to know when a node starts or finishes, a hook is the most direct way.           |
+| **Stateful operations** (e.g., timing) | **Plugins**     | A plugin instance can store state (like a start time) between `before` and `after` events.       |
+| **Complex or multi-step logic**        | **Plugins**     | The class structure of plugins is much cleaner for organizing logic than complex hook functions. |
+| **Separating concerns**                | **Plugins**     | You can attach multiple, independent plugins (e.g., one for logging, one for metrics).           |
+| **Reusable extensions** (e.g., Langfuse) | **Plugins**     | The plugin system is designed for creating robust, shareable extensions.                         |
+
+In short, **start with hooks for simplicity, and graduate to plugins for power and scalability.**
+
+**Lifecycle Hooks Example:**
+
+You can set the `func_start_hook` and `func_finish_hook` parameters when instantiating a `LangExecutor`.
 
 - `func_start_hook` runs before node execution. It takes a function with one required positional parameter: `node`.
 - `func_finish_hook` runs after node execution finishes. It takes a function with one required positional parameter: `node`.
 
-Example:
-
 ```python
-with LangDAG("some input") as dag:
-    dag += node_input_clean
-    dag += node_1
-    dag += node_2
-    dag += node_3
-    node_3.exec_if_any_upstream_acceptable()
+myCustomExecutor = LangExecutor(
+    verbose=False,
+    func_start_hook=lambda node: 
+        print(f"----UI Update---- Starting: `{node.node_desc}`"),
+    func_finish_hook=lambda node: 
+        print(f"----UI Update---- Finished: `{node.node_desc}` with state `{node.execution_state}`")
+)
 
-    node_input_clean >> node_1 >> node_2
-    node_1 >> True >> node_3 
-    node_2 >> 1 >> node_3
-
-    myCustomExecutor = LangExecutor(
-        verbose=False,
-        func_start_hook=lambda node: 
-            print(f"----FAKE---- UI showing: starting `{node.node_id}` with desc `{node.node_desc}`"),
-        func_finish_hook=lambda node: 
-            print(f"----FAKE---- UI showing: finished `{node.node_desc}` with state `{node.execution_state}`")
-    )
-
-    run_dag(
-        dag, 
-        selector=MaxSelector(1),
-        processor=SequentialProcessor(), 
-        executor=myCustomExecutor
-    )
-
-print(dag.dag_state["output"])
+run_dag(dag, executor=myCustomExecutor)
 ```
 
 ### Node Description
@@ -1085,6 +1199,7 @@ The `LangDAG` class defines the structure of the workflow.
 **Parameters:**
 
 - **`dag_input`** (`Any`, optional): An initial input that is accessible to all nodes in the DAG.
+- **`dag_id`** (`str`, optional): A unique identifier for the DAG.
 
 **Methods:**
 
@@ -1105,6 +1220,7 @@ The `LangExecutor` class handles the execution of synchronous workflows.
 - **`verbose`** (`bool`, optional): Toggles the display of execution logs.
 - **`func_start_hook`** (`Callable`, optional): A function to be executed before a node starts.
 - **`func_finish_hook`** (`Callable`, optional): A function to be executed after a node finishes.
+- **`plugins`** (`List[Plugin]`, optional): A list of plugin instances to extend functionality.
 
 ### `AsyncLangExecutor`
 
@@ -1115,6 +1231,7 @@ The `AsyncLangExecutor` class handles the execution of asynchronous workflows.
 - **`verbose`** (`bool`, optional): Toggles the display of execution logs.
 - **`func_start_hook`** (`Callable`, optional): A synchronous or asynchronous function to be executed before a node starts.
 - **`func_finish_hook`** (`Callable`, optional): A synchronous or asynchronous function to be executed after a node finishes.
+- **`plugins`** (`List[Plugin]`, optional): A list of plugin instances to extend functionality.
 
 ### `run_dag()`
 
