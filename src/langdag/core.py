@@ -25,7 +25,7 @@ log = logging.getLogger("rich")
 class Node:
     pass
 
-class Empty:
+class _EmptySentinel:
     pass
 
 class LangDAG(DAG):
@@ -246,7 +246,7 @@ class Node():
         self.upstream_execution_state: Dict[Any, Any] = {}
         self.execution_state: str = "initialized"
 
-        self.downstream_execution_condition_temp = Empty()
+        self.downstream_execution_condition_temp = _EmptySentinel()
         self.downstream_execution_condition: Dict[Any, Any] = {}
 
         self.conditional_excecution: bool = False
@@ -399,10 +399,10 @@ class Node():
 
         if isinstance(other, Node):
             LangDAG.get_current().add_edge(self, other)
-            if not isinstance(self.downstream_execution_condition_temp, Empty):
+            if not isinstance(self.downstream_execution_condition_temp, _EmptySentinel):
                 self.downstream_execution_condition = merge_dicts(self.downstream_execution_condition, 
                                                                   {other.node_id: {self.node_id:self.downstream_execution_condition_temp} })
-                self.downstream_execution_condition_temp = Empty() 
+                self.downstream_execution_condition_temp = _EmptySentinel() 
             return other
         else:
             self.downstream_execution_condition_temp = other
