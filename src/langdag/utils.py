@@ -5,10 +5,10 @@ from rich.tree import Tree
 from rich.padding import Padding
 from rich import print
 
-class Subset(list):
+class SubsetOf(list):
     """
     Subclass of list
-    Customized equal method: `Subset(a) == b` will return True if b is a subset of a.
+    Customized equal method: `SubsetOf(a) == b` will return True if b is a subset of a.
     """
     def __eq__(self, other):
         self_list = self
@@ -20,16 +20,16 @@ class Subset(list):
     
     def __str__(self) -> str:
         list_str = list(self)
-        return f"Subset({list_str})"
+        return f"SubsetOf({list_str})"
     
     def __repr__(self) -> str:
         list_str = list(self)
-        return f"Subset({list_str})"
+        return f"SubsetOf({list_str})"
     
-class Superset(list):
+class ContainsAll(list):
     """
     Subclass of list
-    Customized equal method: `Superset(a) == b` will return True if b is a superset of a.
+    Customized equal method: `ContainsAll(a) == b` will return True if b is a superset of a.
     """
     def __eq__(self, other):
         self_list = self
@@ -41,108 +41,137 @@ class Superset(list):
     
     def __str__(self) -> str:
         list_str = list(self)
-        return f"Superset({list_str})"
+        return f"ContainsAll({list_str})"
     
     def __repr__(self) -> str:
         list_str = list(self)
-        return f"Superset({list_str})"
+        return f"ContainsAll({list_str})"
 
-class Emptyset(list):
+class Empty(list):
     """
-    Customized equal method: `Emptyset() == b` will return True if b is an empty list, tuple or set.
+    A condition that checks if an object is considered "empty" or "falsy" by Python.
+    `Empty() == other` returns True if `not bool(other)` is True.
+    Works for `None`, `False`, `0`, `""`, `[]`, `{}`, etc.
     """
     def __eq__(self, other):
-        if (isinstance(other, list) or isinstance(other, tuple) or isinstance(other, set) ) and len(other)==0:
-            # Handle list: when other is a empty list, return True
-            return True
-        elif other is None:
-            return True
-        elif isinstance(other, Emptyset):
-            return True
-        else:
-            return False
+        return not other
         
     def __str__(self) -> str:
-        list_str = list(self)
-        return f"Emptyset({list_str})"
+        return "Empty()"
     
     def __repr__(self) -> str:
-        list_str = list(self)
-        return f"Emptyset({list_str})"
+        return "Empty()"
     
-class NonEmptyset(list):
+class NotEmpty(list):
     """
-    Customized equal method: `NonEmptyset() == b` will return True if b is not an empty list, tuple or set.
+    A condition that checks if an object is considered "non-empty" or "truthy" by Python.
+    `NotEmpty() == other` returns True if `bool(other)` is True.
     """
     def __eq__(self, other):
-        if (isinstance(other, list) or isinstance(other, tuple) or isinstance(other, set) ) and len(other)==0:
-            # Handle list: when other is a non-empty list, return True
-            return False
-        elif other is None:
-            return False
-        elif isinstance(other, Emptyset):
-            return False
-        else:
-            return True
+        return bool(other)
         
     def __str__(self) -> str:
-        list_str = list(self)
-        return f"NonEmptyset({list_str})"
+        return "NotEmpty()"
     
     def __repr__(self) -> str:
-        list_str = list(self)
-        return f"NonEmptyset({list_str})"
+        return "NotEmpty()"
 
-class PretransformSet():
+class EmptyDict(dict):
     """
-    Customized equal method:  
-    `x == PretransformSet(b, y)` will return True if f(x) == y, 
-    ie. x is untransformed y.
+    A condition that checks if an object is an empty dictionary.
+    `EmptyDict() == other` returns True if `other` is `{}`.
+    """
+    def __eq__(self, other):
+        return isinstance(other, dict) and not other
+        
+    def __str__(self) -> str:
+        return "EmptyDict()"
+    
+    def __repr__(self) -> str:
+        return "EmptyDict()"
+    
+class NotEmptyDict(dict):
+    """
+    A condition that checks if an object is a non-empty dictionary.
+    `NotEmptyDict() == other` returns True if `other` is a dictionary and is not empty.
+    """
+    def __eq__(self, other):
+        return isinstance(other, dict) and bool(other)
+        
+    def __str__(self) -> str:
+        return "NotEmptyDict()"
+    
+    def __repr__(self) -> str:
+        return "NotEmptyDict()"
+
+class Check():
+    """
+    A condition that applies a function to the upstream output before comparison.
+    `output == Check(func, expected_result)` returns True if `func(output) == expected_result`.
+    If `func` raises an exception, the condition will safely return `False`.
     """
     def __init__(self, func, res) -> None:
         self.func = func
         self.data = res
     
     def __str__(self) -> str:
-        return f"PretransformSet({self.func.__name__}, {self.data})"
+        return f"Check({self.func.__name__}, {self.data})"
 
     def __repr__(self) -> str:
-        return f"PretransformSet({self.func.__name__}, {self.data})"
+        return f"Check({self.func.__name__}, {self.data})"
     
     def __eq__(self, other) -> bool:
         try:
-            if self.func(other) == self.data :
-                return True
-            else:
-                return False
+            return self.func(other) == self.data
         except Exception as e:
-            logging.warning('PretransformSet() Error occured!')
+            logging.warning('Check() Error occured!')
             logging.warning(e)
             return False       
 
-class NotPretransformSet():
+
+class CheckNot():
     """
-    Customized equal method:  
-    `x == NotPretransformSet(b, y)` will return True if f(x) != y, 
-    ie. x is not pre-transformed y.
+    A condition that applies a function to the upstream output before inverted comparison.
+    `output == CheckNot(func, unexpected_result)` returns True if `func(output) != unexpected_result`.
+    If `func` raises an exception, the condition will safely return `False`.
     """
     def __init__(self, func, res) -> None:
         self.func = func
         self.data = res
     
     def __str__(self) -> str:
-        return f"NotPretransformSet({self.func.__name__}, {self.data})"
+        return f"CheckNot({self.func.__name__}, {self.data})"
     
     def __eq__(self, other) -> bool:
         try:
-            if self.func(other) == self.data :
-                return False
-            else:
-                return True
+            return self.func(other) != self.data
         except Exception as e:
-            logging.warning('NotPretransformSet() Error occured!')
+            logging.warning('CheckNot() Error occured!')
             logging.warning(e)
-            return True        
+            return False        
+
+
+class InstanceOf():
+    """
+    A condition that checks if the upstream output is an instance of a specific class.
+    `output == InstanceOf(SomeClass)` returns True if `isinstance(output, SomeClass)` is True.
+    If the check raises an exception, the condition will safely return `False`.
+    """
+    def __init__(self, classinfo) -> None:
+        self.classinfo = classinfo
+    
+    def __str__(self) -> str:
+        return f"InstanceOf({self.classinfo})"
+    
+    def __eq__(self, other) -> bool:
+        try:
+            return isinstance(other, self.classinfo)
+        except Exception as e:
+            logging.warning('InstanceOf() Error occured!')
+            logging.warning(e)
+            return False
+
+
 
 def default(upstream_output: Dict):
     """

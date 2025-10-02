@@ -12,15 +12,19 @@ from langdag import Node, LangDAG, run_dag
 from langdag.processor import MultiThreadProcessor, SequentialProcessor
 from langdag.selector import MaxSelector
 from langdag.executor import LangExecutor
-from langdag.utils import default, Emptyset, NonEmptyset, PretransformSet, Subset, Superset
+from langdag.utils import default, Empty, NotEmpty, Check, SubsetOf, ContainsAll
 from langdag.decorator import make_node
 
 from rich import print
 from openai import OpenAI
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 client = OpenAI(
-        api_key=  # use_your own key ,  
+        api_key=os.getenv("OPENAI_API_KEY"),
         # base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", # Pls remove this if not using AliCloud
         )   
 model_name = "qwen-turbo"
@@ -168,14 +172,14 @@ def single_round_ans_with_tool(messages):
         dag += end_conv
         
         f1 = lambda resp: resp.get("tool_calls")
-        llm_resp >> PretransformSet(f1, Emptyset()) >> end_conv
+        llm_resp >> Check(f1, Empty()) >> end_conv
 
-        llm_resp >> PretransformSet(f1, NonEmptyset()) >> tools_to_call
+        llm_resp >> Check(f1, NotEmpty()) >> tools_to_call
         # dag.add_edge(llm_resp, tools_to_call)
         
         f2 = lambda tool_calls: [x.get("function").get("name") for x in tool_calls]
-        tools_to_call >> PretransformSet(f2, Superset(["get_current_weather"])) >> get_current_weather
-        tools_to_call >> PretransformSet(f2, Superset(["evaluate_expression"])) >> evaluate_expression
+        tools_to_call >> Check(f2, ContainsAll(["get_current_weather"])) >> get_current_weather
+        tools_to_call >> Check(f2, ContainsAll(["evaluate_expression"])) >> evaluate_expression
 
         get_current_weather >> llm_resp_given_tool
         evaluate_expression >> llm_resp_given_tool
@@ -185,12 +189,12 @@ def single_round_ans_with_tool(messages):
         end_conv.exec_if_any_upstream_acceptable()
         llm_resp_given_tool.exec_if_any_upstream_acceptable()
 
-        def func_start_hook(node_id, node_desc):
-            if node_desc:
-                print(f"----FAKE---- UI showing: starting `{node_desc}`")
-        def func_finish_hook(node_id, node_desc, execution_state, node_output):
-            if node_desc:
-                print(f"----FAKE---- UI showing: finished `{node_desc}`")
+        def func_start_hook(node):
+            if node.node_desc:
+                print(f"----FAKE---- UI showing: starting `{node.node_desc}`")
+        def func_finish_hook(node):
+            if node.node_desc:
+                print(f"----FAKE---- UI showing: finished `{node.node_desc}`")
 
         myCustomExecutor = LangExecutor(
                                         # verbose=False,

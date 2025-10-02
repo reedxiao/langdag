@@ -15,6 +15,7 @@ requires-python = ">=3.8"
 dependencies = [
   "paradag ~= 1.2.0",
   "rich ~= 13.7.1",
+  "dill ~= 0.3.8",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
